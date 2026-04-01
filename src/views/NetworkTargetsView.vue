@@ -12,7 +12,7 @@ const isLoading = ref(true);
 const isSaving = ref(false);
 const targets = ref([]);
 const limit = ref(10);
-const config = ref({ vpsMonitor: {} });
+const config = ref({ vpsMonitor: { networkMonitorEnabled: true } });
 
 const loadData = async ({ notify = false } = {}) => {
   isLoading.value = true;
@@ -28,8 +28,8 @@ const loadData = async ({ notify = false } = {}) => {
 
     if (settingsRes?.success) {
       config.value = {
-        ...settingsRes,
         vpsMonitor: {
+          networkMonitorEnabled: true,
           ...settingsRes.vpsMonitor
         }
       };
@@ -55,8 +55,8 @@ const handleSave = async () => {
     const result = await saveSettings(config.value);
     if (result.success && result.data) {
       config.value = {
-        ...result.data,
         vpsMonitor: {
+          ...config.value.vpsMonitor,
           ...result.data.vpsMonitor
         }
       };

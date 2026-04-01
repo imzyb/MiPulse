@@ -15,7 +15,6 @@ import {
 import DataGrid from '../components/shared/DataGrid.vue';
 import Modal from '../components/forms/Modal.vue';
 import Switch from '../components/ui/Switch.vue';
-import VpsNetworkTargets from '../components/vps/VpsNetworkTargets.vue';
 
 const { showToast } = useToastStore();
 const config = ref({ vpsMonitor: {} });
@@ -487,21 +486,15 @@ const handleResetConnection = async () => {
               <div class="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-1">{{ formatUptime(detailPayload.latest.uptimeSec) }}</div>
             </div>
           </div>
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-               <VpsMetricChart title="CPU 负载" :points="detailReports.map(r => r.cpu?.usage || 0)" unit="%" color="#6366f1" />
-               <VpsMetricChart title="内存占用" :points="detailReports.map(r => r.mem?.usage || 0)" unit="%" color="#a855f7" />
-               <VpsMetricChart title="磁盘空间" :points="detailReports.map(r => r.disk?.usage || 0)" unit="%" color="#ec4899" />
-            </div>
-           <VpsNetworkTargets
-             :nodeId="selectedNode?.id"
-             :targets="detailTargets"
-             :limit="config?.vpsMonitor?.networkTargetsLimit || 3"
-             :networkMonitorEnabled="detailPayload?.networkMonitorEnabled !== false"
-             @refresh="openDetail(selectedNode)"
-           />
-        </div>
-      </template>
-    </Modal>
+             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <VpsMetricChart title="CPU 负载" :points="detailReports.map(r => r.cpu?.usage || 0)" unit="%" color="#6366f1" />
+                <VpsMetricChart title="内存占用" :points="detailReports.map(r => r.mem?.usage || 0)" unit="%" color="#a855f7" />
+                <VpsMetricChart title="磁盘空间" :points="detailReports.map(r => r.disk?.usage || 0)" unit="%" color="#ec4899" />
+             </div>
+           </div>
+         </div>
+       </template>
+     </Modal>
 
     <!-- Node Deployment Guide -->
     <Modal v-model:show="showGuideModal" title="节点部署指南" size="lg">

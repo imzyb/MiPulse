@@ -22,7 +22,7 @@ export const fetchVpsAlerts = () => api.get('/vps/alerts').then(res => res.data)
 export const clearVpsAlerts = () => api.delete('/vps/alerts').then(res => res.data);
 export const requestVpsNetworkCheck = (nodeId, targetId) => api.post(`/vps/targets/check`, { nodeId, targetId }).then(res => res.data);
 export const fetchPublicNodes = () => api.get('/vps/public').then(res => res.data);
-export const fetchPublicNodeDetail = (id) => api.get('/vps/public', { params: { id } }).then(res => res.data);
+export const fetchPublicNodeDetail = (id) => api.get(`/vps/public/nodes/${id}`).then(res => res.data);
 export const createVpsNetworkTarget = (nodeId, data) => api.post('/vps/targets', { ...data, nodeId }).then(res => res.data);
 export const fetchVpsNetworkTargets = (nodeId) => api.get('/vps/targets', { params: { nodeId } }).then(res => res.data);
 export const updateVpsNetworkTarget = (id, data) => api.put(`/vps/targets/${id}`, data).then(res => res.data);
