@@ -397,6 +397,48 @@ async function pushAlert(db, settings, alert) {
   await dispatchNotifications(settings, alert);
 }
 
+async function pushAlertsBatch(db, settings, alerts) {
+  if (!alerts.length) return;
+  const cooldownMs = getAlertCooldownMs(settings);
+
+  // Batch cooldown check: single query for all alert types
+  const types = [...new Set(alerts.map(a => a.type))];
+  const placeholders = types.map(() => '?').join(',');
+  const cooldownResult = await db.prepare(
+    `SELECT type, created_at FROM vps_alerts WHERE node_id = ? AND type IN (${placeholders}) ORDER BY created_at DESC`
+  ).bind(alerts[0].nodeId, ...types).all();
+
+  const cooldownMap = new Map();
+  (cooldownResult.results || []).forEach(row => {
+    if (!cooldownMap.has(row.type)) {
+      cooldownMap.set(row.type, new Date(row.created_at).getTime());
+    }
+  });
+
+  const now = Date.now();
+  const validAlerts = alerts.filter(alert => {
+    if (shouldSkipCooldown(settings, alert.type)) return true;
+    const lastTs = cooldownMap.get(alert.type);
+    if (lastTs && (now - lastTs) < cooldownMs) return false;
+    return true;
+  });
+
+  for (const alert of validAlerts) {
+    await db.prepare(
+      'INSERT INTO vps_alerts (id, node_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).bind(alert.id, alert.nodeId, alert.type, alert.message, alert.createdAt).run();
+
+    await dispatchNotifications(settings, alert);
+  }
+
+  await db.prepare(
+    `DELETE FROM vps_alerts
+     WHERE id NOT IN (
+       SELECT id FROM vps_alerts ORDER BY created_at DESC LIMIT ${ALERTS_MAX_KEEP}
+     )`
+  ).run();
+}
+
 function stripMarkdown(text) {
   return normalizeString(text).replace(/\*/g, '').replace(/`/g, '').replace(/_/g, '').trim();
 }
@@ -531,6 +573,16 @@ const HEARTBEAT_CHECK_INTERVAL_MS = 60_000; // 1min
 let lastPruneAt = 0;
 const PRUNE_INTERVAL_MS = 300_000; // 5min
 
+// Public snapshot cache (unauthenticated endpoint, high traffic)
+let cachedPublicSnapshot = null;
+let cachedPublicSnapshotAt = 0;
+const PUBLIC_SNAPSHOT_TTL_MS = 30_000; // 30s cache
+
+// Global targets cache (rarely changes)
+let cachedGlobalTargets = null;
+let cachedGlobalTargetsAt = 0;
+const GLOBAL_TARGETS_TTL_MS = 60_000; // 60s cache
+
 function shouldRefreshSettings() {
   return !cachedSettings || (Date.now() - cachedSettingsAt) > SETTINGS_CACHE_TTL_MS;
 }
@@ -541,6 +593,24 @@ function shouldRunHeartbeatCheck() {
 
 function shouldRunPrune() {
   return (Date.now() - lastPruneAt) > PRUNE_INTERVAL_MS;
+}
+
+function shouldRefreshPublicSnapshot() {
+  return !cachedPublicSnapshot || (Date.now() - cachedPublicSnapshotAt) > PUBLIC_SNAPSHOT_TTL_MS;
+}
+
+function shouldRefreshGlobalTargets() {
+  return !cachedGlobalTargets || (Date.now() - cachedGlobalTargetsAt) > GLOBAL_TARGETS_TTL_MS;
+}
+
+function invalidateGlobalTargetsCache() {
+  cachedGlobalTargets = null;
+  cachedGlobalTargetsAt = 0;
+}
+
+function invalidatePublicSnapshotCache() {
+  cachedPublicSnapshot = null;
+  cachedPublicSnapshotAt = 0;
 }
 
 // --- Settings ---
@@ -766,7 +836,9 @@ function mapNodeRow(row) {
 }
 
 async function fetchNodes(db) {
-  const result = await db.prepare('SELECT * FROM vps_nodes ORDER BY created_at DESC').all();
+  const result = await db.prepare(
+    'SELECT id, name, tag, group_tag, region, country_code, description, status, enabled, use_global_targets, network_monitor_enabled, total_rx, total_tx, traffic_limit_gb, last_seen_at, updated_at, last_report_json, overload_state_json, created_at FROM vps_nodes ORDER BY created_at DESC'
+  ).all();
   return (result.results || []).map(mapNodeRow);
 }
 
@@ -850,6 +922,7 @@ async function updateNodeMetrics(db, node) {
 }
 
 async function deleteNode(db, nodeId) {
+  invalidatePublicSnapshotCache();
   await db.prepare('DELETE FROM vps_nodes WHERE id = ?').bind(nodeId).run();
   await db.prepare('DELETE FROM vps_reports WHERE node_id = ?').bind(nodeId).run();
   await db.prepare('DELETE FROM vps_alerts WHERE node_id = ?').bind(nodeId).run();
@@ -924,8 +997,9 @@ async function fetchNetworkTargets(db, nodeId) {
 }
 
 async function fetchGlobalNetworkTargets(db) {
+  if (!shouldRefreshGlobalTargets() && cachedGlobalTargets) return cachedGlobalTargets;
   const result = await db.prepare('SELECT * FROM vps_network_targets WHERE node_id = ? ORDER BY created_at DESC').bind('global').all();
-  return (result.results || []).map(row => ({
+  const targets = (result.results || []).map(row => ({
     id: row.id,
     nodeId: row.node_id,
     type: row.type,
@@ -939,9 +1013,14 @@ async function fetchGlobalNetworkTargets(db) {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }));
+  cachedGlobalTargets = targets;
+  cachedGlobalTargetsAt = Date.now();
+  return targets;
 }
 
 async function insertNetworkTarget(db, nodeId, payload) {
+  invalidateGlobalTargetsCache();
+  invalidatePublicSnapshotCache();
   const target = {
     id: crypto.randomUUID(),
     nodeId,
@@ -1070,8 +1149,10 @@ async function updateNodeStatus(db, settings, node, report) {
   const nowOnline = isNodeOnline(node.lastSeenAt, threshold);
   node.status = nowOnline ? 'online' : 'offline';
 
+  const pendingAlerts = [];
+
   if (wasOnline && !nowOnline && settings?.vpsMonitor?.notifyOffline !== false) {
-    await pushAlert(db, settings, {
+    pendingAlerts.push({
       id: crypto.randomUUID(),
       nodeId: node.id,
       type: 'offline',
@@ -1086,7 +1167,7 @@ async function updateNodeStatus(db, settings, node, report) {
   }
 
   if (!wasOnline && nowOnline && settings?.vpsMonitor?.notifyRecovery !== false) {
-    await pushAlert(db, settings, {
+    pendingAlerts.push({
       id: crypto.randomUUID(),
       nodeId: node.id,
       type: 'recovery',
@@ -1109,7 +1190,7 @@ async function updateNodeStatus(db, settings, node, report) {
     if (overloadInfo.overload.mem) flags.push(`内存 ${overloadInfo.values.mem}%`);
     if (overloadInfo.overload.disk) flags.push(`磁盘 ${overloadInfo.values.disk}%`);
 
-    await pushAlert(db, settings, {
+    pendingAlerts.push({
       id: crypto.randomUUID(),
       nodeId: node.id,
       type: 'overload',
@@ -1121,6 +1202,10 @@ async function updateNodeStatus(db, settings, node, report) {
         `*时间:* ${new Date().toLocaleString('zh-CN')}`
       ])
     });
+  }
+
+  if (pendingAlerts.length) {
+    await pushAlertsBatch(db, settings, pendingAlerts);
   }
 }
 
@@ -1728,8 +1813,11 @@ async function handleGetNodeDetail(id, db, env, request) {
 }
 
 async function handlePublicSnapshot(request, db, env) {
+  if (!shouldRefreshPublicSnapshot() && cachedPublicSnapshot) {
+    return createJson(cachedPublicSnapshot);
+  }
+
   const settings = await loadSettings(env);
-  
 
   const layout = {
     headerEnabled: true,
@@ -1738,7 +1826,10 @@ async function handlePublicSnapshot(request, db, env) {
 
   const nodes = await fetchNodes(db);
   if (!nodes.length) {
-    return createJson({ success: true, data: [], theme: buildPublicThemeConfig(settings), layout });
+    const result = { success: true, data: [], theme: buildPublicThemeConfig(settings), layout };
+    cachedPublicSnapshot = result;
+    cachedPublicSnapshotAt = Date.now();
+    return createJson(result);
   }
 
   const nodeIds = nodes.map(n => n.id);
@@ -1785,12 +1876,15 @@ async function handlePublicSnapshot(request, db, env) {
     return summary;
   });
 
-  return createJson({
+  const result = {
     success: true,
     data,
     theme: buildPublicThemeConfig(settings),
     layout
-  });
+  };
+  cachedPublicSnapshot = result;
+  cachedPublicSnapshotAt = Date.now();
+  return createJson(result);
 }
 
 async function fetchLatestNetworkSamplesBatch(db, nodeIds) {
@@ -1868,7 +1962,7 @@ async function handlePublicNodeDetail(request, db, env) {
 }
 
 async function handleListAlerts(db) {
-  const result = await db.prepare('SELECT * FROM vps_alerts ORDER BY created_at DESC').all();
+  const result = await db.prepare('SELECT * FROM vps_alerts ORDER BY created_at DESC LIMIT 100').all();
   const alerts = (result.results || []).map(row => ({
     id: row.id,
     nodeId: row.node_id,

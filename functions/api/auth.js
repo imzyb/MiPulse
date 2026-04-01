@@ -2,6 +2,10 @@ import { SignJWT, jwtVerify } from 'jose';
 
 const DEFAULT_ADMIN_PASSWORD = 'admin';
 
+// --- Module-level caches ---
+let cachedJwtSecret = null;
+let defaultAdminEnsured = false;
+
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -38,15 +42,20 @@ async function ensureSettingsTable(env) {
 }
 
 async function getOrCreateJwtSecret(env) {
+  if (cachedJwtSecret) return cachedJwtSecret;
   if (!env?.MIPULSE_DB) return 'dev-fallback-secret-not-configured';
   await ensureSettingsTable(env);
   const row = await env.MIPULSE_DB.prepare('SELECT value FROM settings WHERE key = ?').bind('jwt_secret').first();
-  if (row?.value) return row.value;
+  if (row?.value) {
+    cachedJwtSecret = row.value;
+    return row.value;
+  }
   const newSecret = generateRandomSecret(64);
   const now = new Date().toISOString();
   await env.MIPULSE_DB.prepare(
     'INSERT INTO settings (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)'
   ).bind('jwt_secret', newSecret, now, now).run();
+  cachedJwtSecret = newSecret;
   return newSecret;
 }
 
@@ -64,15 +73,19 @@ async function ensureAuthSchema(env) {
 }
 
 async function ensureDefaultAdmin(env) {
-  if (!env?.MIPULSE_DB) return;
+  if (defaultAdminEnsured || !env?.MIPULSE_DB) return;
   await ensureAuthSchema(env);
   const row = await env.MIPULSE_DB.prepare('SELECT id FROM users ORDER BY id ASC LIMIT 1').first();
-  if (row?.id) return;
+  if (row?.id) {
+    defaultAdminEnsured = true;
+    return;
+  }
   const username = 'admin';
   const passwordHash = await sha256(DEFAULT_ADMIN_PASSWORD);
   await env.MIPULSE_DB.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
     .bind(username, passwordHash, 'admin')
     .run();
+  defaultAdminEnsured = true;
 }
 
 async function issueToken(env, user) {
@@ -131,19 +144,7 @@ export async function verifyAuth(request, env) {
 
 export async function getProfile(request, env, auth) {
   if (!auth) return jsonResponse({ success: false, error: 'Unauthorized' }, 401);
-  if (!env?.MIPULSE_DB) {
-    return jsonResponse({ success: true, data: { username: auth.username || 'admin' } });
-  }
-  await ensureDefaultAdmin(env);
-  let user = null;
-  if (auth.uid !== undefined && auth.uid !== null) {
-    user = await env.MIPULSE_DB.prepare('SELECT id, username, role FROM users WHERE id = ? LIMIT 1').bind(auth.uid).first();
-  }
-  if (!user && auth.username) {
-    user = await env.MIPULSE_DB.prepare('SELECT id, username, role FROM users WHERE username = ? LIMIT 1').bind(auth.username).first();
-  }
-  if (!user) return jsonResponse({ success: false, error: 'User not found' }, 404);
-  return jsonResponse({ success: true, data: { id: user.id, username: user.username, role: user.role } });
+  return jsonResponse({ success: true, data: { id: auth.uid, username: auth.username, role: auth.role || 'admin' } });
 }
 
 export async function updateProfile(request, env, auth) {
