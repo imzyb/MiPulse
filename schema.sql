@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS vps_nodes (
     status TEXT NOT NULL,
     enabled INTEGER DEFAULT 1,
     use_global_targets INTEGER DEFAULT 0,
+    network_monitor_enabled INTEGER DEFAULT 1,
     total_rx INTEGER DEFAULT 0,
     total_tx INTEGER DEFAULT 0,
     traffic_limit_gb INTEGER DEFAULT 0,

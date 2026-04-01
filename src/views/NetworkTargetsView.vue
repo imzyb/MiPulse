@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import { RefreshCw, Radar, Save } from 'lucide-vue-next';
 import { useToastStore } from '../stores/toast.js';
 import { fetchSettings, fetchVpsNetworkTargets, saveSettings } from '../lib/api.js';
+import Switch from '../components/ui/Switch.vue';
 import VpsNetworkTargets from '../components/vps/VpsNetworkTargets.vue';
 
 const { showToast } = useToastStore();
@@ -99,6 +100,7 @@ onMounted(loadData);
 
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div class="admin-panel xl:col-span-2 p-6 space-y-6">
+          <Switch v-model="config.vpsMonitor.networkMonitorEnabled" label="全局启用网络监测（所有节点共享此配置）" />
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="space-y-1">
               <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">拨测间隔 (分钟)</label>
@@ -116,7 +118,7 @@ onMounted(loadData);
         </div>
         <div class="p-6 rounded-xl bg-gradient-to-br from-primary-500/10 to-blue-500/5 border border-primary-500/20 shadow-lg space-y-4">
           <div class="text-xs font-black uppercase tracking-widest text-primary-500">拨测说明</div>
-          <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">节点会按配置间隔对 ICMP / TCP / HTTP 目标进行拨测并回传指标。</p>
+          <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">节点会按配置间隔对 ICMP / TCP / HTTP 目标进行拨测并回传指标。所有节点共享全局网络监测目标。</p>
           <p class="text-xs text-gray-500">目标上限用于保护节点开销，建议保持 3-5 个。</p>
         </div>
       </div>

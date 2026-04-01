@@ -585,7 +585,8 @@ const DEFAULT_SETTINGS = {
     notifyAppPush: false,
     appPushKey: '',
     reportRetentionDays: 30,
-    cooldownIgnoreRecovery: true
+    cooldownIgnoreRecovery: true,
+    networkMonitorEnabled: true
   }
 };
 
@@ -618,6 +619,7 @@ async function ensureCoreSchema(env) {
       status TEXT NOT NULL,
       enabled INTEGER DEFAULT 1,
       use_global_targets INTEGER DEFAULT 0,
+      network_monitor_enabled INTEGER DEFAULT 1,
       total_rx INTEGER DEFAULT 0,
       total_tx INTEGER DEFAULT 0,
       traffic_limit_gb INTEGER DEFAULT 0,
@@ -751,6 +753,7 @@ function mapNodeRow(row) {
     status: row.status,
     enabled: row.enabled === 1,
     useGlobalTargets: row.use_global_targets === 1,
+    networkMonitorEnabled: row.network_monitor_enabled !== 0,
     totalRx: Number(row.total_rx || 0),
     totalTx: Number(row.total_tx || 0),
     trafficLimitGb: Number(row.traffic_limit_gb || 0),
@@ -775,8 +778,8 @@ async function fetchNode(db, nodeId) {
 async function insertNode(db, node) {
   await db.prepare(
     `INSERT INTO vps_nodes
-     (id, name, tag, group_tag, region, country_code, description, secret, status, enabled, use_global_targets, total_rx, total_tx, traffic_limit_gb, created_at, updated_at, last_seen_at, last_report_json, overload_state_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (id, name, tag, group_tag, region, country_code, description, secret, status, enabled, use_global_targets, network_monitor_enabled, total_rx, total_tx, traffic_limit_gb, created_at, updated_at, last_seen_at, last_report_json, overload_state_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     node.id,
     node.name,
@@ -789,6 +792,7 @@ async function insertNode(db, node) {
     node.status,
     node.enabled ? 1 : 0,
     node.useGlobalTargets ? 1 : 0,
+    node.networkMonitorEnabled !== false ? 1 : 0,
     node.totalRx || 0,
     node.totalTx || 0,
     node.trafficLimitGb || 0,
@@ -1591,7 +1595,7 @@ async function handleReport(request, db, env) {
     network: sanitizedChecks.length ? sanitizedChecks : null
   };
 
-  if (sanitizedChecks.length) {
+  if (sanitizedChecks.length && node.networkMonitorEnabled !== false) {
     const networkSample = {
       id: crypto.randomUUID(),
       nodeId: node.id,
@@ -1602,16 +1606,12 @@ async function handleReport(request, db, env) {
     await insertNetworkSample(db, networkSample);
   }
 
+  await insertReport(db, normalizedReport);
+
   if (shouldRunPrune()) {
     await pruneNetworkSamples(db, settings);
     await pruneReports(db, settings);
     lastPruneAt = Date.now();
-  }
-
-  const reportInterval = clampNumber(settings?.vpsMonitor?.reportStoreIntervalMinutes, 1, 60, 1);
-  const lastSeenTs = node.lastSeenAt ? new Date(node.lastSeenAt).getTime() : NaN;
-  if (reportInterval <= 1 || !Number.isFinite(lastSeenTs) || (Date.now() - lastSeenTs) >= reportInterval * 60 * 1000) {
-    await insertReport(db, normalizedReport);
   }
 
   node.lastSeenAt = normalizedReport.reportedAt;
@@ -1652,6 +1652,7 @@ async function handleCreateNode(request, db, env) {
     secret: normalizeString(body.secret) || crypto.randomUUID(),
     status: 'offline',
     enabled: body.enabled !== false,
+    networkMonitorEnabled: body.networkMonitorEnabled !== false,
     useGlobalTargets: body.useGlobalTargets === true,
     totalRx: 0,
     totalTx: 0,

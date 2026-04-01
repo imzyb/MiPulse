@@ -27,6 +27,10 @@ const props = defineProps({
   hideHeader: {
     type: Boolean,
     default: false
+  },
+  networkMonitorEnabled: {
+    type: Boolean,
+    default: true
   }
 });
 
@@ -178,6 +182,13 @@ const supportsCheck = computed(() => props.allowCheck);
       </div>
     </div>
 
+    <div v-if="!networkMonitorEnabled" class="p-6 rounded-xl bg-amber-500/5 border border-amber-500/20 text-center">
+      <p class="text-sm font-bold text-amber-600 dark:text-amber-400">此节点的网络监测功能已关闭</p>
+      <p class="text-xs text-amber-500/70 mt-1">请在节点设置中开启网络监测以查看和管理拨测目标</p>
+    </div>
+
+    <template v-else>
+
     <div class="flex flex-wrap items-center gap-3" v-if="targets.length">
       <div class="flex items-center gap-2 px-1.5 py-1.5 bg-black/5 dark:bg-white/5 rounded-lg border border-black/5 dark:border-white/10">
         <select v-model="filterType" class="px-3 py-1 text-xs font-bold bg-transparent text-gray-700 dark:text-gray-300 focus:outline-none cursor-pointer">
@@ -315,5 +326,6 @@ const supportsCheck = computed(() => props.allowCheck);
     <div v-else class="text-center py-4 rounded-lg border border-dashed border-gray-300 dark:border-white/10 text-xs font-bold text-gray-400 uppercase tracking-widest bg-black/5">
       Monitor target limit reached ({{ limit }})
     </div>
+    </template>
   </div>
 </template>

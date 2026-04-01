@@ -14,6 +14,7 @@ import {
 } from 'lucide-vue-next';
 import DataGrid from '../components/shared/DataGrid.vue';
 import Modal from '../components/forms/Modal.vue';
+import Switch from '../components/ui/Switch.vue';
 import VpsNetworkTargets from '../components/vps/VpsNetworkTargets.vue';
 
 const { showToast } = useToastStore();
@@ -72,6 +73,7 @@ const formState = ref({
   enabled: true,
   secret: '',
   useGlobalTargets: false,
+  networkMonitorEnabled: true,
   trafficLimitGb: 0
 });
 
@@ -80,6 +82,7 @@ const columns = [
   { key: 'groupTag', title: '分组', sortable: false, align: 'center', hideOn: 'sm' },
   { key: 'bandwidth', title: '实时带宽', sortable: false, align: 'center' },
   { key: 'status', title: '状态', sortable: false, align: 'center' },
+  { key: 'networkMonitor', title: '网络监测', sortable: false, align: 'center', hideOn: 'md' },
   { key: 'ipAddress', title: 'IP 地址', sortable: false, align: 'center', hideOn: 'md' },
   { key: 'actions', title: '管理节点', sortable: false, align: 'center' }
 ];
@@ -221,7 +224,7 @@ const resetForm = () => {
   formState.value = {
     name: '', tag: '', groupTag: 'Default', region: '',
     description: '', enabled: true, secret: '',
-    useGlobalTargets: false, trafficLimitGb: 0
+    useGlobalTargets: false, networkMonitorEnabled: true, trafficLimitGb: 0
   };
 };
 
@@ -339,13 +342,21 @@ const handleResetConnection = async () => {
             </div>
           </template>
 
-         <template #column-status="{ row }">
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase"
-              :class="row.status === 'online' ? 'bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/30' : 'bg-rose-500/10 text-rose-500 ring-1 ring-rose-500/30'">
-              <span class="h-1.5 w-1.5 rounded-full" :class="row.status === 'online' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'"></span>
-              {{ row.status === 'online' ? '在线' : '离线' }}
-            </div>
-          </template>
+          <template #column-status="{ row }">
+             <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase"
+               :class="row.status === 'online' ? 'bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/30' : 'bg-rose-500/10 text-rose-500 ring-1 ring-rose-500/30'">
+               <span class="h-1.5 w-1.5 rounded-full" :class="row.status === 'online' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'"></span>
+               {{ row.status === 'online' ? '在线' : '离线' }}
+             </div>
+           </template>
+
+          <template #column-networkMonitor="{ row }">
+             <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase"
+               :class="row.networkMonitorEnabled !== false ? 'bg-sky-500/10 text-sky-500 ring-1 ring-sky-500/30' : 'bg-gray-500/10 text-gray-500 ring-1 ring-gray-500/30'">
+               <span class="h-1.5 w-1.5 rounded-full" :class="row.networkMonitorEnabled !== false ? 'bg-sky-500' : 'bg-gray-400'"></span>
+               {{ row.networkMonitorEnabled !== false ? '已开启' : '已关闭' }}
+             </div>
+           </template>
 
           <template #column-ipAddress="{ row }">
             <span class="text-xs font-mono text-gray-700 dark:text-gray-300">
@@ -389,7 +400,8 @@ const handleResetConnection = async () => {
             <label class="text-xs font-black text-gray-500 uppercase tracking-widest ml-1">节点说明</label>
             <textarea v-model="formState.description" rows="2" class="admin-textarea focus:ring-2 ring-primary-500 transition-all"></textarea>
           </div>
-          <Switch v-model="formState.enabled" label="启用此节点的实时监控" />
+           <Switch v-model="formState.enabled" label="启用此节点的实时监控" />
+           <Switch v-model="formState.networkMonitorEnabled" label="启用网络监测（ICMP/TCP/HTTP 拨测）" />
         </div>
       </template>
       <template #footer>
@@ -413,6 +425,7 @@ const handleResetConnection = async () => {
             </div>
           </div>
           <Switch v-model="formState.enabled" label="监控状态" />
+          <Switch v-model="formState.networkMonitorEnabled" label="启用网络监测（ICMP/TCP/HTTP 拨测）" />
         </div>
       </template>
       <template #footer>
@@ -479,12 +492,13 @@ const handleResetConnection = async () => {
                <VpsMetricChart title="内存占用" :points="detailReports.map(r => r.mem?.usage || 0)" unit="%" color="#a855f7" />
                <VpsMetricChart title="磁盘空间" :points="detailReports.map(r => r.disk?.usage || 0)" unit="%" color="#ec4899" />
             </div>
-          <VpsNetworkTargets
-            :nodeId="selectedNode?.id"
-            :targets="detailTargets"
-            :limit="config?.vpsMonitor?.networkTargetsLimit || 3"
-            @refresh="openDetail(selectedNode)"
-          />
+           <VpsNetworkTargets
+             :nodeId="selectedNode?.id"
+             :targets="detailTargets"
+             :limit="config?.vpsMonitor?.networkTargetsLimit || 3"
+             :networkMonitorEnabled="detailPayload?.networkMonitorEnabled !== false"
+             @refresh="openDetail(selectedNode)"
+           />
         </div>
       </template>
     </Modal>
