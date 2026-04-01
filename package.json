@@ -1,0 +1,31 @@
+{
+  "name": "mipulse",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:vite": "vite --port 5173 --host 127.0.0.1",
+    "dev:wrangler": "wrangler pages dev . --proxy 5173 --local --d1 MIPULSE_DB=MIPULSE_DB --port 8787 --compatibility-date 2024-03-31",
+    "dev": "concurrently \"npm run dev:vite\" \"npm run dev:wrangler\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "wrangler": "wrangler"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "jose": "^5.2.1",
+    "lucide-vue-next": "^0.321.0",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.15",
+    "vue-router": "^4.2.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.3",
+    "autoprefixer": "^10.4.17",
+    "concurrently": "^9.2.1",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "vite": "^5.0.12",
+    "wrangler": "^3.28.1"
+  }
+}

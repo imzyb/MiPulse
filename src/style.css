@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary-600: #3b82f6;
+  --primary-700: #2563eb;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.mipulse-card {
+  @apply bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm;
+}
+
+.admin-page {
+  @apply max-w-6xl mx-auto space-y-8;
+}
+
+.admin-hero {
+  @apply rounded-xl border border-black/5 dark:border-white/5 bg-white/75 dark:bg-gray-900/65 backdrop-blur-2xl shadow-xl p-6 lg:p-8;
+}
+
+.admin-panel {
+  @apply rounded-xl border border-black/5 dark:border-white/5 bg-white dark:bg-gray-900 shadow-xl;
+}
+
+.admin-primary-btn {
+  @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-xs font-black uppercase tracking-widest shadow-xl shadow-primary-500/30 transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50;
+}
+
+.admin-secondary-btn {
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-white/80 dark:bg-gray-900/50 border border-black/5 dark:border-white/5 hover:bg-white dark:hover:bg-gray-900 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50;
+}
+
+.admin-loading {
+  @apply flex flex-col items-center justify-center py-28 gap-4;
+}
+
+.admin-section-header {
+  @apply flex flex-col gap-4 md:flex-row md:items-center md:justify-between;
+}
+
+.admin-title-wrap {
+  @apply flex items-center gap-3;
+}
+
+.admin-title-icon {
+  @apply w-11 h-11 rounded-lg bg-primary-600/10 text-primary-600 ring-1 ring-primary-600/20 flex items-center justify-center;
+}
+
+.admin-title {
+  @apply text-sm font-black uppercase tracking-widest text-gray-900 dark:text-white;
+}
+
+.admin-subtitle {
+  @apply text-xs text-gray-500;
+}
+
+.admin-input {
+  @apply w-full bg-black/5 dark:bg-white/5 rounded-lg p-4 border border-black/5 dark:border-white/5 outline-none font-bold text-sm;
+}
+
+.admin-select {
+  @apply w-full bg-black/10 dark:bg-white/5 text-gray-900 dark:text-gray-100 rounded-lg p-4 border border-gray-700 outline-none font-bold text-sm cursor-pointer;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  box-shadow: none;
+}
+
+.admin-select::-ms-expand {
+  display: none;
+}
+
+.admin-select:focus,
+.admin-select:focus-visible {
+  outline: none !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+.admin-textarea {
+  @apply w-full bg-black/5 dark:bg-white/5 rounded-lg p-4 border border-black/5 dark:border-white/5 outline-none font-bold text-sm;
+}
+
+.admin-select option {
+  color: #e5e7eb;
+  background-color: #1f2937;
+}
+
+.dark .admin-select option {
+  color: #e5e7eb;
+  background-color: #111827;
+}
+
+.admin-divider {
+  @apply h-px bg-gradient-to-r from-transparent via-black/10 dark:via-white/10 to-transparent;
+}
