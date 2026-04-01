@@ -520,6 +520,29 @@ async function handleTestNotification(env) {
   return createJson({ success: true, data: { successCount, detail } });
 }
 
+// --- Module-level caches (per-worker-instance) ---
+
+let schemaInitialized = false;
+let cachedSettings = null;
+let cachedSettingsAt = 0;
+const SETTINGS_CACHE_TTL_MS = 30_000; // 30s cache
+let lastHeartbeatCheckAt = 0;
+const HEARTBEAT_CHECK_INTERVAL_MS = 60_000; // 1min
+let lastPruneAt = 0;
+const PRUNE_INTERVAL_MS = 300_000; // 5min
+
+function shouldRefreshSettings() {
+  return !cachedSettings || (Date.now() - cachedSettingsAt) > SETTINGS_CACHE_TTL_MS;
+}
+
+function shouldRunHeartbeatCheck() {
+  return (Date.now() - lastHeartbeatCheckAt) > HEARTBEAT_CHECK_INTERVAL_MS;
+}
+
+function shouldRunPrune() {
+  return (Date.now() - lastPruneAt) > PRUNE_INTERVAL_MS;
+}
+
 // --- Settings ---
 
 const DEFAULT_SETTINGS = {
@@ -574,7 +597,7 @@ function isMissingSettingsTableError(error) {
 }
 
 async function ensureCoreSchema(env) {
-  if (!env?.MIPULSE_DB) return;
+  if (schemaInitialized || !env?.MIPULSE_DB) return;
   const statements = [
     `CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -656,6 +679,7 @@ async function ensureCoreSchema(env) {
   for (const sql of statements) {
     await env.MIPULSE_DB.prepare(sql).run();
   }
+  schemaInitialized = true;
 }
 
 async function ensureSettingsTable(env) {
@@ -674,6 +698,7 @@ async function ensureSettingsTable(env) {
 }
 
 async function loadSettings(env) {
+  if (!shouldRefreshSettings()) return resolveSettings(cachedSettings);
   if (!env?.MIPULSE_DB) return resolveSettings();
   let row;
   try {
@@ -690,6 +715,8 @@ async function loadSettings(env) {
   } catch {
     parsed = {};
   }
+  cachedSettings = parsed;
+  cachedSettingsAt = Date.now();
   return resolveSettings(parsed);
 }
 
@@ -793,6 +820,23 @@ async function updateNode(db, node) {
     node.totalRx || 0,
     node.totalTx || 0,
     node.trafficLimitGb || 0,
+    node.updatedAt,
+    node.lastSeenAt,
+    node.lastReport ? JSON.stringify(node.lastReport) : null,
+    node.overloadState ? JSON.stringify(node.overloadState) : null,
+    node.id
+  ).run();
+}
+
+async function updateNodeMetrics(db, node) {
+  await db.prepare(
+    `UPDATE vps_nodes
+     SET status = ?, total_rx = ?, total_tx = ?, updated_at = ?, last_seen_at = ?, last_report_json = ?, overload_state_json = ?
+     WHERE id = ?`
+  ).bind(
+    node.status,
+    node.totalRx || 0,
+    node.totalTx || 0,
     node.updatedAt,
     node.lastSeenAt,
     node.lastReport ? JSON.stringify(node.lastReport) : null,
@@ -1359,7 +1403,7 @@ function buildPublicGuide(env, request, node) {
 export async function handleVpsRequest(path, request, env, auth) {
   const db = env.MIPULSE_DB;
   if (!db) return createError('D1 Binding (MIPULSE_DB) not found', 500);
-  await ensureCoreSchema(env);
+  if (!schemaInitialized) await ensureCoreSchema(env);
 
   const url = new URL(request.url);
   const parts = path.split('/');
@@ -1556,23 +1600,31 @@ async function handleReport(request, db, env) {
       checks: sanitizedChecks
     };
     await insertNetworkSample(db, networkSample);
+  }
+
+  if (shouldRunPrune()) {
     await pruneNetworkSamples(db, settings);
+    await pruneReports(db, settings);
+    lastPruneAt = Date.now();
   }
 
   const reportInterval = clampNumber(settings?.vpsMonitor?.reportStoreIntervalMinutes, 1, 60, 1);
   const lastSeenTs = node.lastSeenAt ? new Date(node.lastSeenAt).getTime() : NaN;
   if (reportInterval <= 1 || !Number.isFinite(lastSeenTs) || (Date.now() - lastSeenTs) >= reportInterval * 60 * 1000) {
     await insertReport(db, normalizedReport);
-    await pruneReports(db, settings);
   }
 
   node.lastSeenAt = normalizedReport.reportedAt;
   await updateNodeStatus(db, settings, node, normalizedReport);
-  await checkAllNodesHeartbeat(db, settings);
+
+  if (shouldRunHeartbeatCheck()) {
+    await checkAllNodesHeartbeat(db, settings);
+    lastHeartbeatCheckAt = Date.now();
+  }
 
   node.lastReport = buildSnapshot(normalizedReport, node);
   node.updatedAt = nowIso();
-  await updateNode(db, node);
+  await updateNodeMetrics(db, node);
 
   return createJson({ success: true });
 }
@@ -1743,7 +1795,16 @@ async function handlePublicSnapshot(request, db, env) {
 async function fetchLatestNetworkSamplesBatch(db, nodeIds) {
   if (!nodeIds.length) return [];
   const placeholders = nodeIds.map(() => '?').join(',');
-  const sql = `SELECT node_id, data, reported_at FROM vps_network_samples WHERE node_id IN (${placeholders}) ORDER BY reported_at DESC`;
+  const sql = `
+    SELECT s1.node_id, s1.data, s1.reported_at
+    FROM vps_network_samples s1
+    INNER JOIN (
+      SELECT node_id, MAX(reported_at) AS max_reported_at
+      FROM vps_network_samples
+      WHERE node_id IN (${placeholders})
+      GROUP BY node_id
+    ) s2 ON s1.node_id = s2.node_id AND s1.reported_at = s2.max_reported_at
+  `;
   const { results } = await db.prepare(sql).bind(...nodeIds).all();
 
   const latestMap = new Map();

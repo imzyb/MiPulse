@@ -1,6 +1,3 @@
--- MiPulse D1 Schema
-
--- Users Table
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT UNIQUE NOT NULL,
@@ -9,7 +6,6 @@ CREATE TABLE IF NOT EXISTS users (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- VPS Nodes Table
 CREATE TABLE IF NOT EXISTS vps_nodes (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -32,7 +28,6 @@ CREATE TABLE IF NOT EXISTS vps_nodes (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- VPS Reports Table (Metrics)
 CREATE TABLE IF NOT EXISTS vps_reports (
     id TEXT PRIMARY KEY,
     node_id TEXT NOT NULL,
@@ -41,7 +36,6 @@ CREATE TABLE IF NOT EXISTS vps_reports (
     data TEXT NOT NULL
 );
 
--- VPS Alerts Table
 CREATE TABLE IF NOT EXISTS vps_alerts (
     id TEXT PRIMARY KEY,
     node_id TEXT NOT NULL,
@@ -50,7 +44,6 @@ CREATE TABLE IF NOT EXISTS vps_alerts (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- VPS Network Targets Table
 CREATE TABLE IF NOT EXISTS vps_network_targets (
     id TEXT PRIMARY KEY,
     node_id TEXT NOT NULL,
@@ -66,7 +59,6 @@ CREATE TABLE IF NOT EXISTS vps_network_targets (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- VPS Network Samples Table
 CREATE TABLE IF NOT EXISTS vps_network_samples (
     id TEXT PRIMARY KEY,
     node_id TEXT NOT NULL,
@@ -75,7 +67,6 @@ CREATE TABLE IF NOT EXISTS vps_network_samples (
     data TEXT NOT NULL
 );
 
--- Settings Table
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -83,7 +74,6 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Indexes
 CREATE INDEX IF NOT EXISTS idx_vps_nodes_updated_at ON vps_nodes(updated_at);
 CREATE INDEX IF NOT EXISTS idx_vps_reports_node_time ON vps_reports(node_id, reported_at);
 CREATE INDEX IF NOT EXISTS idx_vps_alerts_node_time ON vps_alerts(node_id, created_at);
