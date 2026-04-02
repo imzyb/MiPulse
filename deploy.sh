@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # MiPulse 一键部署脚本
-# 使用方式: ./deploy.sh [environment]
-# 示例: ./deploy.sh production
+# 使用方式: ./deploy.sh
+# 示例: ./deploy.sh
 
 set -e
 
@@ -197,15 +197,12 @@ post_deploy_checks() {
 
 # 显示帮助信息
 show_help() {
-    echo "使用方式: $0 [environment]"
-    echo ""
+    echo "使用方式: $0"    echo ""
     echo "参数:"
-    echo "  development    部署到开发环境 (默认)"
-    echo "  production     部署到生产环境"
+    echo "  (无参数)    部署到生产环境"
     echo ""
     echo "示例:"
-    echo "  $0                # 部署到开发环境"
-    echo "  $0 production     # 部署到生产环境"
+    echo "  $0                # 部署到生产环境"
     echo ""
 }
 
@@ -214,7 +211,7 @@ main() {
     print_banner
     
     # 获取环境参数
-    local ENVIRONMENT="${1:-development}"
+    local ENVIRONMENT="${1:-production}"
     
     if [ "$ENVIRONMENT" = "--help" ] || [ "$ENVIRONMENT" = "-h" ]; then
         show_help
@@ -222,7 +219,7 @@ main() {
     fi
     
     # 验证环境参数
-    if [ "$ENVIRONMENT" != "development" ] && [ "$ENVIRONMENT" != "production" ]; then
+    if [ "$ENVIRONMENT" != "production" ]; then
         print_error "无效的环境: $ENVIRONMENT"
         show_help
         exit 1

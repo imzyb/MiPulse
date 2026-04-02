@@ -2,6 +2,7 @@
 
 # MiPulse Cloudflare 配置向导
 # 此脚本将交互式地帮助您配置 wrangler.toml
+# 需要您提前在 Cloudflare Dashboard 创建 D1 数据库和 KV 命名空间
 
 set -e
 
@@ -17,7 +18,7 @@ print_banner() {
     echo ""
     echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║  MiPulse Cloudflare 配置向导                               ║${NC}"
-    echo -e "${BLUE}║  环境变量和数据库配置                                     ║${NC}"
+    echo -e "${BLUE}║  请提前创建 D1 数据库和 KV 命名空间，然后输入 ID           ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -74,120 +75,42 @@ get_account_id() {
     print_step "Account ID: $ACCOUNT_ID"
 }
 
-# 获取或创建 D1 数据库 ID
+# 获取 D1 数据库 ID
 get_d1_ids() {
-    print_section "步骤 2: 获取 D1 数据库 ID"
-    
-    print_info "您可以："
-    echo "  1. 使用现有的 mipulse D1 数据库"
-    echo "  2. 创建新的 D1 数据库"
+    print_section "步骤 2: 输入 D1 数据库 ID"
+
+    print_info "请先在 Cloudflare Dashboard 创建 D1 数据库"
+    print_info "路径: Workers & Pages → D1 → Create database"
     echo ""
-    
-    read -p "选择 (1 或 2): " D1_CHOICE
-    
-    case $D1_CHOICE in
-        1)
-            print_info "从 Cloudflare Dashboard → Workers → D1 → mipulse"
-            echo "    复制 Database ID"
-            echo ""
-            read -p "请输入生产环境 D1 ID: " PROD_D1_ID
-            read -p "请输入开发环境 D1 ID (按 Enter 使用相同值): " DEV_D1_ID
-            
-            if [ -z "$DEV_D1_ID" ]; then
-                DEV_D1_ID=$PROD_D1_ID
-            fi
-            
-            if [ -z "$PROD_D1_ID" ]; then
-                print_error "D1 ID 不能为空"
-                get_d1_ids
-                return
-            fi
-            
-            print_step "生产 D1 ID: $PROD_D1_ID"
-            print_step "开发 D1 ID: $DEV_D1_ID"
-            ;;
-        2)
-            print_info "创建新的 D1 数据库..."
-            if command -v wrangler &> /dev/null; then
-                read -p "继续? (y/n) " -n 1 -r
-                echo ""
-                if [[ $REPLY =~ ^[Yy]$ ]]; then
-                    wrangler d1 create mipulse-prod
-                    wrangler d1 create mipulse-dev
-                    print_info "请从输出中复制 Database ID"
-                    read -p "生产 D1 ID: " PROD_D1_ID
-                    read -p "开发 D1 ID: " DEV_D1_ID
-                else
-                    get_d1_ids
-                    return
-                fi
-            else
-                print_error "未找到 wrangler CLI，请先运行: npm install -g wrangler"
-                get_d1_ids
-            fi
-            ;;
-        *)
-            print_error "无效的选择"
-            get_d1_ids
-            ;;
-    esac
+
+    read -p "请输入 D1 数据库 ID: " D1_ID
+
+    if [ -z "$D1_ID" ]; then
+        print_error "D1 ID 不能为空"
+        get_d1_ids
+        return
+    fi
+
+    print_step "D1 ID: $D1_ID"
 }
 
-# 获取或创建 KV 命名空间 ID
+# 获取 KV 命名空间 ID
 get_kv_ids() {
-    print_section "步骤 3: 获取 KV 命名空间 ID"
-    
-    print_info "需要创建 KV 命名空间..."
-    
-    if command -v wrangler &> /dev/null; then
-        read -p "自动创建 KV 命名空间? (y/n) " -n 1 -r
-        echo ""
-        
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            print_info "创建生产环境 KV..."
-            PROD_KV_OUTPUT=$(wrangler kv:namespace create "MIPULSE_KV" 2>&1)
-            PROD_KV_ID=$(echo "$PROD_KV_OUTPUT" | grep -oP 'id = "\K[^"]+' | head -1)
-            
-            print_info "创建生产环境 KV 预览..."
-            PROD_KV_PREVIEW_OUTPUT=$(wrangler kv:namespace create "MIPULSE_KV" --preview 2>&1)
-            PROD_KV_PREVIEW_ID=$(echo "$PROD_KV_PREVIEW_OUTPUT" | grep -oP 'preview_id = "\K[^"]+' | head -1)
-            
-            print_info "创建开发环境 KV..."
-            DEV_KV_OUTPUT=$(wrangler kv:namespace create "MIPULSE_KV" --env development 2>&1)
-            DEV_KV_ID=$(echo "$DEV_KV_OUTPUT" | grep -oP 'id = "\K[^"]+' | head -1)
-            
-            if [ -z "$PROD_KV_ID" ] || [ -z "$PROD_KV_PREVIEW_ID" ]; then
-                echo ""
-                print_info "手动输入 KV ID..."
-                read -p "生产环境 KV ID: " PROD_KV_ID
-                read -p "生产环境 KV 预览 ID: " PROD_KV_PREVIEW_ID
-                read -p "开发环境 KV ID: " DEV_KV_ID
-                read -p "开发环境 KV 预览 ID: " DEV_KV_PREVIEW_ID
-            fi
-        else
-            read -p "生产环境 KV ID: " PROD_KV_ID
-            read -p "生产环境 KV 预览 ID: " PROD_KV_PREVIEW_ID
-            read -p "开发环境 KV ID: " DEV_KV_ID
-            read -p "开发环境 KV 预览 ID: " DEV_KV_PREVIEW_ID
-        fi
-    else
-        print_error "未找到 wrangler CLI"
-        read -p "生产环境 KV ID: " PROD_KV_ID
-        read -p "生产环境 KV 预览 ID: " PROD_KV_PREVIEW_ID
-        read -p "开发环境 KV ID: " DEV_KV_ID
-        read -p "开发环境 KV 预览 ID: " DEV_KV_PREVIEW_ID
-    fi
-    
-    if [ -z "$PROD_KV_ID" ] || [ -z "$PROD_KV_PREVIEW_ID" ]; then
+    print_section "步骤 3: 输入 KV 命名空间 ID"
+
+    print_info "请先在 Cloudflare Dashboard 创建 KV 命名空间"
+    print_info "路径: Workers & Pages → KV → Create namespace"
+    echo ""
+
+    read -p "请输入 KV 命名空间 ID: " KV_ID
+
+    if [ -z "$KV_ID" ]; then
         print_error "KV ID 不能为空"
         get_kv_ids
         return
     fi
-    
-    print_step "生产 KV ID: $PROD_KV_ID"
-    print_step "生产 KV 预览 ID: $PROD_KV_PREVIEW_ID"
-    print_step "开发 KV ID: $DEV_KV_ID"
-    print_step "开发 KV 预览 ID: $DEV_KV_PREVIEW_ID"
+
+    print_step "KV ID: $KV_ID"
 }
 
 # 获取可选配置
@@ -222,7 +145,7 @@ get_optional_config() {
 
 # 生成 wrangler.toml 文件
 generate_wrangler_toml() {
-    print_section "步骤 5: 生成配置文件"
+    print_section "步骤 4: 生成配置文件"
     
     # 确定路由配置
     if [ -n "$CUSTOM_DOMAIN" ]; then
@@ -251,19 +174,6 @@ compatibility_date = "2024-03-31"
 account_id = "$ACCOUNT_ID"
 workers_dev = true
 
-[env.development]
-vars = { ENVIRONMENT = "development" }
-
-[[env.development.d1_databases]]
-binding = "MIPULSE_DB"
-database_name = "mipulse"
-database_id = "$DEV_D1_ID"
-
-[[env.development.kv_namespaces]]
-binding = "MIPULSE_KV"
-id = "$DEV_KV_ID"
-preview_id = "$DEV_KV_PREVIEW_ID"
-
 [env.production]
 $ROUTE_CONFIG
 $ZONE_CONFIG
@@ -272,12 +182,11 @@ vars = { ENVIRONMENT = "production" }
 [[env.production.d1_databases]]
 binding = "MIPULSE_DB"
 database_name = "mipulse"
-database_id = "$PROD_D1_ID"
+database_id = "$D1_ID"
 
 [[env.production.kv_namespaces]]
 binding = "MIPULSE_KV"
-id = "$PROD_KV_ID"
-preview_id = "$PROD_KV_PREVIEW_ID"
+id = "$KV_ID"
 
 $CRON_CONFIG
 
@@ -301,11 +210,11 @@ EOF
 
 # 验证配置
 verify_config() {
-    print_section "步骤 6: 验证配置"
+    print_section "步骤 5: 验证配置"
     
     if command -v wrangler &> /dev/null; then
         print_info "验证 wrangler 配置..."
-        if wrangler publish --dry-run --env development &> /dev/null; then
+        if wrangler publish --dry-run --env production &> /dev/null; then
             print_step "配置验证成功"
         else
             print_error "配置验证失败，请检查您的 ID"
