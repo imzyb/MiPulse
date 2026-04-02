@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# MiPulse 一键部署脚本
+# MiPulse Cloudflare Pages 部署配置脚本
 # 使用方式: ./deploy.sh
-# 示例: ./deploy.sh
+# 此脚本将帮助配置 Cloudflare Pages 连接到您的 GitHub 仓库
 
 set -e
 
@@ -159,50 +159,47 @@ build_project() {
     fi
 }
 
-# 部署到 Cloudflare
+# 部署到 Cloudflare Pages (GitHub 集成)
 deploy_to_cloudflare() {
-    local env=$1
+    print_section "Cloudflare Pages 部署配置"
     
-    print_section "部署到 Cloudflare ($env 环境)"
+    print_info "此脚本配置完成后，请按以下步骤操作："
+    echo ""
+    echo "1. 访问 Cloudflare Dashboard:"
+    echo "   https://dash.cloudflare.com → Pages"
+    echo ""
+    echo "2. 点击 'Create a project' → 'Connect to Git'"
+    echo ""
+    echo "3. 选择您的 GitHub 账户和 fork 的仓库"
+    echo ""
+    echo "4. 配置构建设置:"
+    echo "   - Production branch: main (或您的主分支)"
+    echo "   - Build command: npm run build"
+    echo "   - Build output directory: dist"
+    echo "   - Root directory: / (留空)"
+    echo ""
+    echo "5. 添加环境变量 (Settings → Environment variables):"
+    echo "   - ENVIRONMENT: production"
+    echo ""
+    echo "6. 配置 D1 和 KV 绑定 (Settings → Functions → D1/KV namespace bindings)"
+    echo ""
     
-    print_info "正在部署..."
-    print_info "命令: wrangler pages deploy dist --branch $env"
-    
-    if wrangler pages deploy dist --branch "$env"; then
-        print_step "部署成功!"
-    else
-        print_error "部署失败"
-        exit 1
-    fi
-}
-
-# 运行部署后检查
-post_deploy_checks() {
-    local env=$1
-    
-    print_section "部署后检查"
-    
-    print_info "验证 KV 绑定..."
-    if wrangler kv:key list --binding MIPULSE_KV --env "$env" &> /dev/null; then
-        print_step "KV 绑定正常"
-    else
-        print_error "KV 绑定检查失败"
-    fi
-    
-    print_info "查看部署日志..."
-    if command -v wrangler &> /dev/null; then
-        wrangler tail --env "$env" --format json 2>/dev/null | head -20 || true
-    fi
+    print_step "配置指导已显示"
+    print_info "按照上述步骤在 Cloudflare Dashboard 中完成配置"
 }
 
 # 显示帮助信息
 show_help() {
-    echo "使用方式: $0"    echo ""
-    echo "参数:"
-    echo "  (无参数)    部署到生产环境"
+    echo "使用方式: $0"
     echo ""
-    echo "示例:"
-    echo "  $0                # 部署到生产环境"
+    echo "功能:"
+    echo "  配置 Cloudflare Pages 连接到您的 GitHub 仓库"
+    echo "  提供自动部署的配置指导"
+    echo ""
+    echo "优势:"
+    echo "  ✓ 推送代码自动部署"
+    echo "  ✓ 支持分支预览"
+    echo "  ✓ 便于后续更新"
     echo ""
 }
 
@@ -210,53 +207,31 @@ show_help() {
 main() {
     print_banner
     
-    # 获取环境参数
-    local ENVIRONMENT="${1:-production}"
-    
-    if [ "$ENVIRONMENT" = "--help" ] || [ "$ENVIRONMENT" = "-h" ]; then
-        show_help
-        exit 0
-    fi
-    
-    # 验证环境参数
-    if [ "$ENVIRONMENT" != "production" ]; then
-        print_error "无效的环境: $ENVIRONMENT"
-        show_help
-        exit 1
-    fi
-    
-    print_info "目标环境: $ENVIRONMENT"
+    print_info "此脚本将帮助您配置 Cloudflare Pages 连接到 GitHub 仓库"
+    print_info "部署将通过 GitHub 集成自动进行"
     echo ""
     
-    # 执行部署步骤
+    # 执行配置步骤
     check_prerequisites
     check_git_status
     install_dependencies
     build_project
     
-    read -p "继续部署到 $ENVIRONMENT 环境? (y/n) " -n 1 -r
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_info "中止部署"
-        exit 0
-    fi
+    deploy_to_cloudflare
     
-    deploy_to_cloudflare "$ENVIRONMENT"
-    post_deploy_checks "$ENVIRONMENT"
-    
-    print_section "部署完成！"
-    echo -e "${GREEN}✓ MiPulse 已部署到 $ENVIRONMENT 环境${NC}"
+    print_section "配置完成！"
+    echo -e "${GREEN}✓ MiPulse Cloudflare Pages 配置完成${NC}"
     echo ""
-    echo "后续步骤:"
-    echo "  1. 访问您的应用"
-    echo "  2. 监控 Cloudflare Dashboard:"
-    echo "     - Workers Logs"
-    echo "     - D1 Analytics (应该看到 Rows Read 大幅下降)"
-    echo "     - KV Analytics"
+    echo "下一步操作:"
+    echo "  1. 按照上述指导在 Cloudflare Dashboard 中连接您的 GitHub 仓库"
+    echo "  2. 配置 D1 数据库和 KV 命名空间绑定"
+    echo "  3. 推送代码到 GitHub 将自动触发部署"
     echo ""
-    echo "需要帮助?"
-    echo "  - 查看部署指南: QUICK_DEPLOY_GUIDE.md"
-    echo "  - 查看优化指南: OPTIMIZATION_GUIDE.md"
+    echo "自动部署优势:"
+    echo "  ✓ 推送代码自动部署"
+    echo "  ✓ 支持分支预览"
+    echo "  ✓ 便于后续更新"
+    echo "  ✓ 团队协作友好"
     echo ""
 }
 
