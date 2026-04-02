@@ -417,7 +417,7 @@ async function pushAlertsBatch(db, settings, alerts, env = null) {
 
   // 优化：使用KV缓存检查冷却时间，减少D1查询
   const now = Date.now();
-  const validAlerts = [];
+  let validAlerts = [];
   const kvUnavailableTypes = new Set();
   
   for (const alert of alerts) {

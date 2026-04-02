@@ -166,9 +166,9 @@ deploy_to_cloudflare() {
     print_section "部署到 Cloudflare ($env 环境)"
     
     print_info "正在部署..."
-    print_info "命令: wrangler pages deploy dist --env $env"
+    print_info "命令: wrangler pages deploy dist --branch $env"
     
-    if wrangler pages deploy dist --env "$env"; then
+    if wrangler pages deploy dist --branch "$env"; then
         print_step "部署成功!"
     else
         print_error "部署失败"
