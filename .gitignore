@@ -6,7 +6,6 @@ dist
 
 # Wrangler
 .wrangler/
-wrangler.toml
 
 # Environment
 .env

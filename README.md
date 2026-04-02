@@ -1,86 +1,107 @@
-# MiPulse - VPS Monitor
+# ⚡️ MiPulse - 全球监控新纪元
 
-一个基于 Vue 3 和 Cloudflare Pages 构建的轻量级 VPS 监控面板。
+![MiPulse Hero](./public/images/hero.png)
 
-## 技术栈
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YOUR_USERNAME/MiPulse)
 
-- **前端**: Vue 3 + Vite + Pinia + Vue Router
-- **样式**: TailwindCSS + PostCSS
-- **后端**: Cloudflare Pages Functions
-- **数据库**: Cloudflare D1 (SQLite)
-- **认证**: JWT (jose)
-- **图标**: Lucide Icons
-- **HTTP 客户端**: Axios
+> **MiPulse** 是一款基于 Cloudflare 生态系统（Hono + D1 + Workers with Assets）构建的高性能、极简风格 VPS 探针监控系统。它专为追求极致性能与现代审美且无需复杂服务器配置的用户设计。
 
-## 功能特性
+---
 
-- 多节点 VPS 状态监控
-- 实时指标报告与历史数据查询
-- 网络目标检测 (HTTP/TCP/Ping)
-- 告警系统
-- 流量统计与管理
-- 用户认证与权限管理
-- 暗色模式支持
-- 响应式设计
+## ✨ 核心特性
 
-## 部署指南
+- **🚀 全栈 Cloudflare 驱动**: 利用 Workers with Assets 架构，实现 API 与静态资源的高速全球分发。
+- **💎 极简美学设计**: 采用玻璃拟态（Glassmorphism）风格，配备动态数据可视化图表与平滑动画。
+- **📊 实时性能洞察**: CPU 负载、内存占用、磁盘空间以及实时的双向带宽速率监控。
+- **🛡️ 节点安全隔离**: 采用基于 JWT 的鉴权机制，探针与管理端通过签名/Secret 安全通信。
+- **📉 离线判定与告警**: 毫秒级心跳检测，自动识别离线节点并生成控制台告警。
 
-### 第一步：创建 D1 数据库
+---
 
-1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)
-2. 进入 **Workers & Pages** → **D1 SQL Database** → **Create database**
-3. 输入数据库名称（如 `mipulse-db`），点击创建
-4. 创建完成后，记录 **Database ID**
+## 🏗️ 架构概览
 
-### 第二步：部署到 Cloudflare Pages
+```mermaid
+graph LR
+    subgraph "Global Nodes"
+        A[VPS Node A]
+        B[VPS Node B]
+    end
 
-1. 进入 **Workers & Pages** → **Create application** → **Pages**
-2. 选择 **Direct Upload** 或连接你的 Git 仓库
-3. 构建配置：
-   - **框架预设**: Vue
-   - **构建命令**: `npm run build`
-   - **构建输出目录**: `dist`
-4. 点击部署
+    subgraph "Cloudflare Ecosystem"
+        C[Hono Worker API]
+        D[(Cloudflare D1 DB)]
+        E[Vite Assets]
+    end
 
-### 第三步：绑定 D1 数据库
+    A -- Report (HMAC/Secret) --> C
+    B -- Report (HMAC/Secret) --> C
+    C -- Queries --> D
+    User -- Browser Access --> E
+    E -- API Calls (JWT) --> C
+```
 
-1. 进入你的 Pages 项目 → **Settings** → **Functions** → **D1 database bindings**
-2. 点击 **Add binding**
-3. 填写以下信息：
-   - **Variable name**: `MIPULSE_DB`（必须完全一致）
-   - **D1 database**: 选择第一步创建的数据库
-4. 点击 **Save**
-5. 重新部署项目使绑定生效
+---
 
-### 第四步：初始化数据库表
+## 🚀 快速开始
 
-部署成功并绑定数据库后，数据库表会在首次访问 API 时自动创建。
+### 1. 全自动一键部署 (推荐)
 
-你也可以通过 Cloudflare Dashboard 的 D1 SQL 控制台手动执行 `schema.sql` 中的建表语句。
+只需要登录 Cloudflare，然后运行以下命令，系统将自动创建数据库、KV、更新配置并完成发布：
 
-## 默认账号
+```bash
+# 确保已登录 Cloudflare
+npx wrangler login
 
+# 执行全自动部署
+npm run deploy:full
+```
+
+### 2. 手动分步部署 (进阶)
+
+如果你希望手动控制资源创建过程：
+
+```bash
+npm install
+npm run db:create
+
+# 将输出结果中的 database_id 复制到 wrangler.toml 中
+# 运行本地与远程初始化
+npm run db:init
+npm run db:init:remote
+
+npm run deploy
+```
+
+---
+
+## 🔐 初始安全配置
+
+系统默认提供了一个初始管理员账号用于首次运行：
+
+- **URL**: `https://<your-worker>.workers.dev/login`
 - **用户名**: `admin`
-- **密码**: `admin`
+- **密码**: `mipulse-secret`
 
-> **安全提示**: 首次登录后请立即在后台修改密码。
+> [!CAUTION]
+> **重要安全性提示**: 登录后，请立即进入 **管理面板 -> 个人资料** 修改默认密码。
 
-## JWT 密钥
+---
 
-JWT 签名密钥会在首次登录时自动生成一个 64 位随机字符串，并安全存储到 D1 数据库中，无需手动配置。
+## 🛠️ 探针部署
 
-## 数据库表结构
+在你想监控的 VPS 上运行探针（支持多种客户端，如 MiPulse-Probe）：
 
-| 表名 | 说明 |
-|------|------|
-| `users` | 用户表 |
-| `vps_nodes` | VPS 节点表 |
-| `vps_reports` | 节点指标报告表 |
-| `vps_alerts` | 告警记录表 |
-| `vps_network_targets` | 网络检测目标表 |
-| `vps_network_samples` | 网络检测样本表 |
-| `settings` | 系统配置表（含 JWT 密钥） |
+```bash
+# 通用配置环境变量
+export MIPULSE_URL="https://<your-worker>.workers.dev"
+export MIPULSE_ID="your-node-id"
+export MIPULSE_SECRET="your-node-secret"
+```
 
-## 许可证
+## 📜 开源协议
 
-MIT
+本项目采用 **MIT** 协议开源。
+
+---
+
+<p align="center">Designed with ❤️ by <b>Antigravity</b> (Google Deepmind Team)</p>

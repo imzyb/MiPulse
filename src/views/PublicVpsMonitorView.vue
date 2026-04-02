@@ -19,8 +19,8 @@ const defaultTheme = {
     showStats: true,
     footerText: 'Powered by MiPulse Monitoring System'
 };
-const theme = ref(null);
-const layout = ref(null);
+const theme = ref({ ...defaultTheme });
+const layout = ref({ headerEnabled: true, footerEnabled: true });
 const isLoading = ref(true);
 const error = ref('');
 const errorStatus = ref(null);
@@ -67,7 +67,7 @@ const loadNodes = async (silent = false) => {
     try {
         const result = await fetchPublicNodes();
         if (result && result.success) {
-            nodes.value = result.data || [];
+            nodes.value = result.nodes || [];
             theme.value = { ...defaultTheme, ...(result.theme || {}) };
             layout.value = { ...{ headerEnabled: true, footerEnabled: true }, ...(result.layout || {}) };
             lastRefreshError.value = null;
@@ -124,6 +124,8 @@ const onlineCount = computed(() => nodes.value.filter(n => n.status === 'online'
 const totalCount = computed(() => nodes.value.length);
 const onlineRate = computed(() => totalCount.value > 0 ? Math.round((onlineCount.value / totalCount.value) * 100) : 0);
 
+const activeTag = ref('All');
+
 const filteredNodes = computed(() => {
     let result = nodes.value;
     if (searchQuery.value.trim()) {
@@ -140,7 +142,6 @@ const filteredNodes = computed(() => {
     return result;
 });
 
-const activeTag = ref('All');
 const tags = computed(() => {
     const list = new Set(['All']);
     nodes.value.forEach(n => list.add(n.groupTag || 'Default'));
@@ -166,6 +167,7 @@ const globalStats = computed(() => {
 });
 
 const groupList = computed(() => {
+    if (!nodes.value || nodes.value.length === 0) return [];
     const groups = new Map();
     filteredNodes.value.forEach((node) => {
         const key = node.groupTag || 'Default';
@@ -467,10 +469,12 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     </div>
                                 </div>
                                 <!-- Badges Area -->
-                                    <span v-if="getLatencyPoints(node.id)[0] !== undefined" class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20">
+                                <div class="flex items-center gap-2 mt-4">
+                                    <span v-if="getLatencyPoints(node.id).length > 0 && getLatencyPoints(node.id)[0] !== null" class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20">
                                         {{ getLatencyPoints(node.id)[0] }}ms
                                     </span>
                                 </div>
+                            </div>
                             <div class="relative">
                                 <div class="w-3 h-3 rounded-full animate-ping absolute" :class="node.status === 'online' ? 'bg-emerald-500' : 'bg-red-500'"></div>
                                 <div class="w-3 h-3 rounded-full relative" :class="node.status === 'online' ? 'bg-emerald-500 shadow-[0_0_12px_#10b981]' : 'bg-red-500 shadow-[0_0_12px_#ef4444]'"></div>
@@ -602,7 +606,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 </div>
                                 <div class="flex justify-between items-center mt-1 text-[10px] font-mono font-black">
                                     <span class="opacity-30 uppercase tracking-widest text-[8px]">Network</span>
-                                    <span class="text-emerald-500" v-if="getLatencyPoints(node.id)[0] !== undefined">{{ getLatencyPoints(node.id)[0] }}ms</span>
+                                    <span class="text-emerald-500" v-if="getLatencyPoints(node.id).length > 0 && getLatencyPoints(node.id)[0] !== null">{{ getLatencyPoints(node.id)[0] }}ms</span>
                                     <span class="opacity-40" v-else>--</span>
                                 </div>
                             </div>
