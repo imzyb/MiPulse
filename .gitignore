@@ -8,7 +8,6 @@ dist
 .wrangler/
 wrangler.toml
 
-wrangler.toml
 # Environment
 .env
 .env.local
