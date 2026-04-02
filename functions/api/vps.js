@@ -301,6 +301,7 @@ function summarizeNode(node, latestReport, settings) {
     description: node.description,
     status,
     enabled: Boolean(node.enabled),
+    networkMonitorEnabled: node.networkMonitorEnabled !== false,
     useGlobalTargets: Boolean(node.useGlobalTargets || node.use_global_targets),
     totalRx: node.totalRx || node.total_rx || 0,
     totalTx: node.totalTx || node.total_tx || 0,
