@@ -2,7 +2,10 @@
 
 ![MiPulse Hero](./public/images/hero.png)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YOUR_USERNAME/MiPulse)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/imzyb/MiPulse)
+
+> [!TIP]
+> **如果你是从本仓库 Fork 而来**：为了让上方的一键部署按钮指向你自己的仓库，请在 Fork 后修改 `README.md`，将上方链接中的 `imzyb` 替换为你的 GitHub 用户名。
 
 > **MiPulse** 是一款基于 Cloudflare 生态系统（Hono + D1 + Workers with Assets）构建的高性能、极简风格 VPS 探针监控系统。它专为追求极致性能与现代审美且无需复杂服务器配置的用户设计。
 
