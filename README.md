@@ -109,6 +109,13 @@ export MIPULSE_ID="your-node-id"
 export MIPULSE_SECRET="your-node-secret"
 ```
 
+## 🔄 如何同步更新
+
+当上游仓库有新功能或修复发布时，你可以通过以下方式同步：
+
+1.  **手动同步 (推荐)**: 在你的 Fork 仓库页面点击 `Sync fork` -> `Update branch`。GitHub 会自动合并最新代码，并触发 Cloudflare 的自动构建与部署。
+2.  **自动化同步**: 本项目内置了 GitHub Action 脚本。进入你仓库的 `Actions` 选项卡并启用 `Fork Sync` 工作流，系统将每天自动检查并同步上游更新。
+
 ## 📜 开源协议
 
 本项目采用 **MIT** 协议开源。
