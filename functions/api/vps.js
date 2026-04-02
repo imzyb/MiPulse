@@ -638,9 +638,9 @@ const GLOBAL_TARGETS_TTL_MS = 60_000; // 60s cache
 const KV_SETTINGS_KEY = 'mipulse:settings:main';
 const KV_NODE_SECRET_PREFIX = 'mipulse:node:secret:';
 const KV_ALERT_COOLDOWN_PREFIX = 'mipulse:alert:cooldown:';
-const KV_SETTINGS_TTL_SECONDS = 300; // 5 minutes in KV
-const KV_PUBLIC_SNAPSHOT_KEY = 'mipulse:public:snapshot';
-const KV_PUBLIC_SNAPSHOT_TTL = 60; // 60 seconds
+const KV_SETTINGS_TTL_SECONDS = 3600; // 1 hour in KV
+const KV_NODE_SECRET_TTL = 86400; // 24 hours in KV
+const KV_PUBLIC_SNAPSHOT_KEY = 'mipulse:public:snapshot'; // Remains for legacy but Cache API preferred
 const NODE_SECRET_CACHE = new Map(); // Memory cache for node secrets (per-worker instance)
 
 function shouldRefreshSettings() {
@@ -869,18 +869,7 @@ async function loadSettings(env) {
   cachedSettings = parsed;
   cachedSettingsAt = Date.now();
   
-  // 4. 回填 KV 缓存（后续读取更快）
-  if (env?.MIPULSE_KV) {
-    try {
-      await env.MIPULSE_KV.put(KV_SETTINGS_KEY, JSON.stringify(parsed), { 
-        expirationTtl: KV_SETTINGS_TTL_SECONDS 
-      });
-    } catch (error) {
-      // KV 写入失败不影响主流程
-      console.error('KV settings write failed:', error?.message);
-    }
-  }
-  
+  // 4. 不再在读取时回填 KV，仅在写入时更新，以节省写额度
   return resolveSettings(parsed);
 }
 
@@ -955,7 +944,7 @@ async function cacheNodeSecret(env, nodeId, secret) {
     try {
       const kvKey = KV_NODE_SECRET_PREFIX + nodeId;
       await env.MIPULSE_KV.put(kvKey, secret, { 
-        expirationTtl: KV_SETTINGS_TTL_SECONDS 
+        expirationTtl: KV_NODE_SECRET_TTL 
       });
     } catch (error) {
       console.error('KV node secret write failed:', error?.message);
@@ -1901,7 +1890,13 @@ async function handleReport(request, db, env) {
   // 现在只在报告中处理当前节点的离线状态更新
   await updateNodeStatus(db, settings, node, normalizedReport, env);
 
-  node.lastReport = buildSnapshot(normalizedReport, node);
+  const currentSnapshot = buildSnapshot(normalizedReport, node);
+  // 关键：如果本次报告不含网络探测数据（例如：只是心跳），则保留上一次已知的探测数据
+  // 避免公开页/弹窗中的延时曲线因为心跳而频繁被置空（闪烁）
+  if ((!currentSnapshot.network || currentSnapshot.network.length === 0) && node.lastReport?.network) {
+    currentSnapshot.network = node.lastReport.network;
+  }
+  node.lastReport = currentSnapshot;
   node.updatedAt = nowIso();
   await updateNodeMetrics(db, node);
 
@@ -2008,27 +2003,22 @@ async function handleGetNodeDetail(id, db, env, request) {
 }
 
 async function handlePublicSnapshot(request, db, env) {
-  // 1. 检查内存缓存
-  if (!shouldRefreshPublicSnapshot() && cachedPublicSnapshot) {
-    return createJson(cachedPublicSnapshot);
+  const cache = caches.default;
+  const cacheUrl = new URL(request.url);
+  // 剔除可能影响缓存的 query string (如果有的话)
+  cacheUrl.search = '';
+  const cacheKey = new Request(cacheUrl.toString(), request);
+  
+  // 1. 尝试从 Cache API 获取 (完全免费，无 KV 写额度限制)
+  let response = await cache.match(cacheKey);
+  if (response) {
+    // 增加一个自定义 Header 以便调试
+    const newHeaders = new Headers(response.headers);
+    newHeaders.set('X-MiPulse-Cache', 'HIT');
+    return new Response(response.body, { ...response, headers: newHeaders });
   }
 
-  // 2. 尝试从 KV 缓存获取（避免重新查询D1）
-  if (env?.MIPULSE_KV) {
-    try {
-      const kvValue = await env.MIPULSE_KV.get(KV_PUBLIC_SNAPSHOT_KEY);
-      if (kvValue) {
-        const result = JSON.parse(kvValue);
-        cachedPublicSnapshot = result;
-        cachedPublicSnapshotAt = Date.now();
-        return createJson(result);
-      }
-    } catch (error) {
-      console.error('KV public snapshot read failed:', error?.message);
-    }
-  }
-
-  // 3. 从 D1 查询重建快照
+  // 2. 从 D1 查询重建快照
   const settings = await loadSettings(env);
 
   const layout = {
@@ -2039,20 +2029,11 @@ async function handlePublicSnapshot(request, db, env) {
   const nodes = await fetchNodes(db);
   if (!nodes.length) {
     const result = { success: true, data: [], theme: buildPublicThemeConfig(settings), layout };
-    cachedPublicSnapshot = result;
-    cachedPublicSnapshotAt = Date.now();
-    
-    // 回填 KV 缓存
-    if (env?.MIPULSE_KV) {
-      try {
-        await env.MIPULSE_KV.put(KV_PUBLIC_SNAPSHOT_KEY, JSON.stringify(result), { 
-          expirationTtl: KV_PUBLIC_SNAPSHOT_TTL 
-        });
-      } catch (error) {
-        console.error('KV public snapshot write failed:', error?.message);
-      }
-    }
-    return createJson(result);
+    const res = createJson(result);
+    // 缓存 60 秒
+    res.headers.set('Cache-Control', 'public, max-age=60');
+    await cache.put(cacheKey, res.clone());
+    return res;
   }
 
   const nodeIds = nodes.map(n => n.id);
@@ -2085,7 +2066,10 @@ async function handlePublicSnapshot(request, db, env) {
     const globalTargets = allTargetsMap.get('global') || [];
     const targets = node.useGlobalTargets ? globalTargets : nodeSpecificTargets;
 
-    if (latestNetwork && latestNetwork.length > 0) {
+    // 如果 current snapshot 里的 network 为空，则从最新的 samples 中拉取
+    // 此时 summary.latest 已经通过之前的 handleReport 优化逻辑带有了历史延时
+    // 但为了确保万一（例如刚启动或缓存未同步），这里做一次保底合并
+    if ((!summary.latest?.network || summary.latest.network.length === 0) && latestNetwork && latestNetwork.length > 0) {
       latestNetwork = rehydrateCheckNames(latestNetwork, targets);
       if (!summary.latest) summary.latest = { at: nowIso() };
       summary.latest.network = latestNetwork;
@@ -2105,21 +2089,19 @@ async function handlePublicSnapshot(request, db, env) {
     theme: buildPublicThemeConfig(settings),
     layout
   };
-  cachedPublicSnapshot = result;
-  cachedPublicSnapshotAt = Date.now();
+
+  const finalRes = createJson(result);
+  // 在 Cache API 中缓存 60 秒
+  finalRes.headers.set('Cache-Control', 'public, max-age=60');
+  finalRes.headers.set('X-MiPulse-Cache', 'MISS');
   
-  // 4. 回填 KV 缓存
-  if (env?.MIPULSE_KV) {
-    try {
-      await env.MIPULSE_KV.put(KV_PUBLIC_SNAPSHOT_KEY, JSON.stringify(result), { 
-        expirationTtl: KV_PUBLIC_SNAPSHOT_TTL 
-      });
-    } catch (error) {
-      console.error('KV public snapshot write failed:', error?.message);
-    }
-  }
+  // 异步存入缓存，不阻塞当前响应
+  const resToCache = finalRes.clone();
+  // 注意：Cloudflare Pages Functions 的 waitUntil 可能需要通过 context 访问，
+  // 这里简化处理，直接等待或由运行时环境控制
+  await cache.put(cacheKey, resToCache);
   
-  return createJson(result);
+  return finalRes;
 }
 
 async function fetchLatestNetworkSamplesBatch(db, nodeIds) {

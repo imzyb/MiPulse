@@ -448,15 +448,8 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     </div>
                                 </div>
                                 <!-- Badges Area -->
-                                <div class="flex flex-wrap gap-2 mt-1">
-                                    <span class="px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/5 text-[10px] font-bold border" :style="{ borderColor: dividerColor }">
-                                        {{ node.latest?.cpu?.cores || 1 }} Cores
-                                    </span>
-                                    <span v-if="node.latest?.mem?.total" class="px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/5 text-[10px] font-bold border" :style="{ borderColor: dividerColor }">
-                                        {{ formatBytes(node.latest.mem.total) }} RAM
-                                    </span>
-                                    <span v-if="node.latest?.disk?.total" class="px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/5 text-[10px] font-bold border" :style="{ borderColor: dividerColor }">
-                                        {{ formatBytes(node.latest.disk.total) }} DISK
+                                    <span v-if="getLatencyPoints(node.id)[0] !== undefined" class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20">
+                                        {{ getLatencyPoints(node.id)[0] }}ms
                                     </span>
                                 </div>
                             </div>
@@ -536,12 +529,12 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     <div class="h-1.5 w-1.5 rounded-full bg-indigo-500/40"></div>
                                     <span class="text-[11px] font-bold opacity-60 truncate">{{ node.latest?.meta?.os || 'System' }}</span>
                                 </div>
-                                <div class="flex gap-1.5 font-mono text-[10px] font-black tracking-tighter">
+                                <div class="flex items-center gap-1.5 font-mono text-[10px] font-black tracking-tighter">
                                     <span :class="getLoadColor(node.latest?.load1, node.latest?.cpu?.cores)">{{ node.latest?.load1 || '0.0' }}</span>
                                     <span class="opacity-20">/</span>
                                     <span :class="getLoadColor(node.latest?.load5, node.latest?.cpu?.cores)">{{ node.latest?.load5 || '0.0' }}</span>
-                                    <span class="opacity-20">/</span>
-                                    <span :class="getLoadColor(node.latest?.load15, node.latest?.cpu?.cores)">{{ node.latest?.load15 || '0.0' }}</span>
+                                    <span class="opacity-20 text-emerald-500" v-if="getLatencyPoints(node.id)[0] !== undefined">+</span>
+                                    <span class="text-emerald-500 font-bold" v-if="getLatencyPoints(node.id)[0] !== undefined">{{ getLatencyPoints(node.id)[0] }}ms</span>
                                 </div>
                             </div>
 
