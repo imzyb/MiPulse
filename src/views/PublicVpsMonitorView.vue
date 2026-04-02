@@ -544,20 +544,20 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 </div>
                             </div>
 
-                            <!-- Column 4: Load -->
+                            <!-- Column 4: System / Load -->
                             <div class="hidden md:flex col-span-1 flex-col gap-0.5 text-center px-2">
                                 <span class="text-[9px] font-black opacity-30 uppercase tracking-widest">Load</span>
                                 <span class="font-mono text-xs font-black" :class="getLoadColor(node.latest?.load1, node.latest?.cpu?.cores)">{{ node.latest?.load1 || '0.0' }}</span>
                             </div>
 
                             <!-- Column 5-8: Resource Bars -->
-                            <div class="col-span-12 md:col-span-4 grid grid-cols-3 gap-4 px-4 border-x" :style="{ borderColor: dividerColor }">
+                            <div class="col-span-12 md:col-span-4 grid grid-cols-3 gap-6 px-4 border-x" :style="{ borderColor: dividerColor }">
                                 <div class="flex flex-col gap-1.5">
                                     <div class="flex justify-between text-[9px] font-black uppercase tracking-tighter opacity-50">
                                         <span>CPU</span>
                                         <span :class="getStatusColor(node.latest?.cpuPercent || 0) === '#ef4444' ? 'text-rose-500' : ''">{{ node.latest?.cpuPercent || 0 }}%</span>
                                     </div>
-                                    <div class="h-1.5 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
+                                    <div class="h-1 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
                                         <div :style="{ width: `${node.latest?.cpuPercent || 0}%`, backgroundColor: getStatusColor(node.latest?.cpuPercent || 0) }" class="h-full rounded-full transition-all duration-700"></div>
                                     </div>
                                 </div>
@@ -566,7 +566,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                         <span>MEM</span>
                                         <span>{{ node.latest?.memPercent || 0 }}%</span>
                                     </div>
-                                    <div class="h-1.5 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
+                                    <div class="h-1 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
                                         <div :style="{ width: `${node.latest?.memPercent || 0}%`, backgroundColor: getStatusColor(node.latest?.memPercent || 0) }" class="h-full rounded-full transition-all duration-700"></div>
                                     </div>
                                 </div>
@@ -575,13 +575,13 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                         <span>DSK</span>
                                         <span>{{ node.latest?.diskPercent || 0 }}%</span>
                                     </div>
-                                    <div class="h-1.5 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
+                                    <div class="h-1 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
                                         <div :style="{ width: `${node.latest?.diskPercent || 0}%`, backgroundColor: getStatusColor(node.latest?.diskPercent || 0) }" class="h-full rounded-full transition-all duration-700"></div>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Column 9-10: Network Speed -->
+                            <!-- Column 9-10: Network Speed (Real-time Delta) -->
                             <div class="col-span-12 md:col-span-2 flex flex-col justify-center px-4">
                                 <div class="flex flex-col font-mono font-black">
                                     <div class="flex items-center justify-between text-emerald-500">
@@ -595,14 +595,14 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 </div>
                             </div>
 
-                            <!-- Column 11-12: Total Usage & Quality -->
+                            <!-- Column 11-12: Cumulative Stats & Quality -->
                             <div class="col-span-12 md:col-span-2 flex flex-col justify-center pl-4 border-l" :style="{ borderColor: dividerColor }">
                                 <div class="flex justify-between items-center text-[10px] font-mono font-black">
-                                    <span class="opacity-30 uppercase tracking-widest text-[8px]">Total</span>
+                                    <span class="opacity-30 uppercase tracking-widest text-[8px]">Usage</span>
                                     <span class="opacity-60">{{ formatBytes((node.totalRx || 0) + (node.totalTx || 0)) }}</span>
                                 </div>
                                 <div class="flex justify-between items-center mt-1 text-[10px] font-mono font-black">
-                                    <span class="opacity-30 uppercase tracking-widest text-[8px]">Latency</span>
+                                    <span class="opacity-30 uppercase tracking-widest text-[8px]">Network</span>
                                     <span class="text-emerald-500" v-if="getLatencyPoints(node.id)[0] !== undefined">{{ getLatencyPoints(node.id)[0] }}ms</span>
                                     <span class="opacity-40" v-else>--</span>
                                 </div>
