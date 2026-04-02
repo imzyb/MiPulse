@@ -177,7 +177,6 @@ onBeforeUnmount(() => {
           <div class="p-6 rounded-xl bg-gradient-to-br from-primary-500/10 to-blue-500/5 border border-primary-500/20 shadow-lg space-y-4">
             <div class="text-xs font-black uppercase tracking-widest text-primary-500">主题提示</div>
             <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">主题区域用于控制公开页风格。建议先选预设，再补充 Logo 与背景图。</p>
-            <p class="text-xs text-gray-500">公开页无需 Token 即可访问。</p>
           </div>
         </div>
       </section>
