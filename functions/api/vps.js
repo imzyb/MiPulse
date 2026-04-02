@@ -1402,6 +1402,12 @@ function buildInstallScript(reportUrl, node, settings) {
     '',
     'set -euo pipefail',
     '',
+    '# Ensure root privileges',
+    'if [[ $EUID -ne 0 ]]; then',
+    '  echo "[mipulse] This script must be run as root (use sudo bash)" >&2',
+    '  exit 1',
+    'fi',
+    '',
     `REPORT_URL="${reportUrl}"`,
     `NODE_ID="${node.id}"`,
     `NODE_SECRET="${node.secret}"`,
@@ -1458,8 +1464,8 @@ function buildInstallScript(reportUrl, node, settings) {
     'PROBE_VERSION="1.0.0"',
     'LAST_ERROR=""',
     'CPU_USAGE="$(cpu_usage)"',
-    "MEM_USAGE=\"$(free | awk '/Mem/ {printf \"%.0f\", $3/$2*100}')\"",
-    "DISK_USAGE=\"$(df -P / | awk 'NR==2 {gsub(/%/,\"\"); print $5}')\"",
+    'MEM_USAGE="$(free | awk \'/Mem/ {if($2>0) printf "%.0f", $3/$2*100; else print 0}\')"',
+    'DISK_USAGE="$(df -P / | awk \'NR==2 {if($2>0) {gsub(/%/,""); print $5} else print 0}\')"',
     "LOAD1=\"$(awk '{print $1}' /proc/loadavg)\"",
     "TRAFFIC_JSON=\"$(cat /proc/net/dev | awk 'NR>2 && $1 != \"lo:\" {rx += $2; tx += $10} END {printf \"{\\\"rx\\\": %d, \\\"tx\\\": %d}\", rx, tx}')\"",
     '',
@@ -1619,6 +1625,9 @@ function buildInstallScript(reportUrl, node, settings) {
     'systemctl daemon-reload',
     '',
     'systemctl enable --now mipulse-vps-probe.timer',
+    '',
+    'echo "[mipulse-probe] starting first report immediately..."',
+    'systemctl start mipulse-vps-probe.service',
     '',
     'systemctl status mipulse-vps-probe.timer --no-pager'
   ].join('\n');
@@ -1815,11 +1824,24 @@ async function handleReport(request, db, env) {
     const lastRx = Number(lastTraffic.rx || 0);
     const lastTx = Number(lastTraffic.tx || 0);
 
-    const rxDelta = (curRx < lastRx || lastRx === 0) ? curRx : (curRx - lastRx);
-    const txDelta = (curTx < lastTx || lastTx === 0) ? curTx : (curTx - lastTx);
+    const rxDelta = (curRx < lastRx || lastRx === 0) ? 0 : (curRx - lastRx);
+    const txDelta = (curTx < lastTx || lastTx === 0) ? 0 : (curTx - lastTx);
 
     node.totalRx = (Number(node.totalRx) || 0) + rxDelta;
     node.totalTx = (Number(node.totalTx) || 0) + txDelta;
+
+    // Calculate real-time speed (Bytes/s)
+    const lastSeenTs = node.lastSeenAt ? new Date(node.lastSeenAt).getTime() : 0;
+    const currentTs = new Date(reportedAt).getTime();
+    const timeDelta = (currentTs - lastSeenTs) / 1000;
+
+    if (timeDelta > 0 && timeDelta < 3600) { // Only calculate if gap is reasonable (< 1h)
+      report.traffic.rxSpeed = rxDelta / timeDelta;
+      report.traffic.txSpeed = txDelta / timeDelta;
+    } else {
+      report.traffic.rxSpeed = 0;
+      report.traffic.txSpeed = 0;
+    }
   }
 
   const normalizedReport = {
@@ -2010,12 +2032,16 @@ async function handlePublicSnapshot(request, db, env) {
   const cacheKey = new Request(cacheUrl.toString(), request);
   
   // 1. 尝试从 Cache API 获取 (完全免费，无 KV 写额度限制)
-  let response = await cache.match(cacheKey);
-  if (response) {
-    // 增加一个自定义 Header 以便调试
-    const newHeaders = new Headers(response.headers);
-    newHeaders.set('X-MiPulse-Cache', 'HIT');
-    return new Response(response.body, { ...response, headers: newHeaders });
+  try {
+    let response = await cache.match(cacheKey);
+    if (response) {
+      // 增加一个自定义 Header 以便调试
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set('X-MiPulse-Cache', 'HIT');
+      return new Response(response.body, { ...response, headers: newHeaders });
+    }
+  } catch (cacheErr) {
+    console.warn('[Cache API] Match failed:', cacheErr);
   }
 
   // 2. 从 D1 查询重建快照
@@ -2095,11 +2121,13 @@ async function handlePublicSnapshot(request, db, env) {
   finalRes.headers.set('Cache-Control', 'public, max-age=60');
   finalRes.headers.set('X-MiPulse-Cache', 'MISS');
   
-  // 异步存入缓存，不阻塞当前响应
-  const resToCache = finalRes.clone();
-  // 注意：Cloudflare Pages Functions 的 waitUntil 可能需要通过 context 访问，
-  // 这里简化处理，直接等待或由运行时环境控制
-  await cache.put(cacheKey, resToCache);
+  // 异步尝试存入缓存，捕获错误以防阻塞正常数据
+  try {
+    const resToCache = finalRes.clone();
+    await cache.put(cacheKey, resToCache);
+  } catch (putErr) {
+    console.warn('[Cache API] Put failed:', putErr);
+  }
   
   return finalRes;
 }

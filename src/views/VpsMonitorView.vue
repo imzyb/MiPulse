@@ -20,14 +20,12 @@ const { showToast } = useToastStore();
 const config = ref({ vpsMonitor: {} });
 
 const baseOrigin = window.location.origin;
-const isLoading = ref(false);
-const nodes = ref([]);
-const alerts = ref([]);
 const isRefreshing = ref(false);
+const lastRefreshError = ref(null);
 const selectedGroup = ref('全部');
 const isCompact = ref(localStorage.getItem('mipulse_vps_compact') === 'true');
 
-const refreshCountdown = ref(30);
+const refreshCountdown = ref(60);
 let refreshTimer = null;
 let countdownTimer = null;
 
@@ -89,27 +87,35 @@ const columns = [
 const loadData = async ({ notify = false, silent = false } = {}) => {
   if (!silent) {
     isLoading.value = true;
-    isRefreshing.value = true;
   }
+  isRefreshing.value = true;
+  
   try {
     const [nodesRes, settingsRes] = await Promise.all([fetchVpsNodes(), fetchSettings()]);
-    if (nodesRes.success) {
+    if (nodesRes && nodesRes.success) {
       nodes.value = nodesRes.data.data || [];
+      lastRefreshError.value = null;
+    } else {
+      const errMsg = nodesRes?.error || '无法获取服务器数据';
+      if (!silent) showToast(errMsg, 'error');
+      lastRefreshError.value = errMsg;
     }
+    
     if (settingsRes && settingsRes.success) {
       config.value = settingsRes;
     }
+    
     if (notify) {
-      showToast('已刷新数据', 'success');
+      showToast('已完成同步', 'success');
     }
-  } catch (error) {
-    if (!silent) showToast(error.message || '加载服务器数据失败', 'error');
+  } catch (err) {
+    const errMsg = err?.message || '网络通讯异常';
+    if (!silent) showToast(errMsg, 'error');
+    lastRefreshError.value = errMsg;
   } finally {
-    if (!silent) {
-        isLoading.value = false;
-        isRefreshing.value = false;
-    }
-    refreshCountdown.value = 30;
+    isLoading.value = false;
+    isRefreshing.value = false;
+    refreshCountdown.value = 60;
   }
 };
 
@@ -118,7 +124,7 @@ onMounted(() => {
     countdownTimer = setInterval(() => {
         if (refreshCountdown.value > 0) refreshCountdown.value--;
     }, 1000);
-    refreshTimer = setInterval(() => loadData({ silent: true }), 30000);
+    refreshTimer = setInterval(() => loadData({ silent: true }), 60000);
 });
 
 onUnmounted(() => {
@@ -332,10 +338,15 @@ const handleResetConnection = async () => {
             </div>
             <span class="hidden sm:inline">{{ isCompact ? '常规' : '紧凑' }}</span>
           </button>
-          <button @click="handleRefresh" class="admin-secondary-btn px-8 py-4 flex items-center gap-2">
-            <RefreshCw :size="18" :class="{'animate-spin': isRefreshing}" class="text-gray-500" />
-            <span class="text-gray-400 font-mono">{{ refreshCountdown }}s</span>
-            刷新
+          <button @click="handleRefresh" class="admin-secondary-btn px-6 py-4 flex items-center gap-2 group relative overflow-hidden" :class="{'border-rose-500/20 text-rose-500': lastRefreshError}">
+            <div v-if="isRefreshing" class="absolute inset-0 bg-primary-500/5 animate-pulse"></div>
+            <RefreshCw :size="16" :class="{'animate-spin text-primary-500': isRefreshing, 'text-rose-500': lastRefreshError}" class="text-gray-500 transition-colors" />
+            <div class="flex flex-col items-start leading-none gap-1">
+                <span class="text-[9px] font-black uppercase tracking-widest" :class="lastRefreshError ? 'text-rose-500' : 'text-gray-400'">
+                    {{ lastRefreshError ? 'Sync Error' : (isRefreshing ? 'Syncing...' : `Next Sync: ${refreshCountdown}s`) }}
+                </span>
+                <span class="text-[10px] font-black">{{ lastRefreshError ? '重试中' : '刷新数据' }}</span>
+            </div>
           </button>
           <button @click="openCreate" class="admin-primary-btn flex-1 xl:flex-none whitespace-nowrap">
             部署新探针

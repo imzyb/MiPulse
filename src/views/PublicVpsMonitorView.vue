@@ -25,14 +25,16 @@ const isLoading = ref(true);
 const error = ref('');
 const errorStatus = ref(null);
 
+const refreshCountdown = ref(60);
 const searchQuery = ref('');
 const viewMode = ref(localStorage.getItem('mipulse_public_view_mode') || 'grid');
 const darkMode = ref(localStorage.getItem('mipulse_public_dark_mode') !== 'false');
 const nodeHistoryMap = ref({});
 const expandedNodes = ref(new Set());
-const refreshCountdown = ref(30);
 let countdownTimer = null;
 let refreshTimer = null;
+const isRefreshing = ref(false);
+const lastRefreshError = ref(null);
 
 const loadNodeDetail = async (nodeId) => {
     if (nodeHistoryMap.value[nodeId]) return;
@@ -56,27 +58,40 @@ const toggleExpand = (nodeId) => {
 };
 
 const loadNodes = async (silent = false) => {
-    if (!silent) isLoading.value = true;
+    if (!silent) {
+        isLoading.value = true;
+        error.value = '';
+    }
+    isRefreshing.value = true;
+    
     try {
         const result = await fetchPublicNodes();
         if (result && result.success) {
             nodes.value = result.data || [];
             theme.value = { ...defaultTheme, ...(result.theme || {}) };
             layout.value = { ...{ headerEnabled: true, footerEnabled: true }, ...(result.layout || {}) };
+            lastRefreshError.value = null;
             
             // Set document title
             const customTitle = (theme.value?.title && theme.value.title !== 'MiPulse') ? theme.value.title : 'MiPulse';
             document.title = `${customTitle} - MiPulse`;
         } else {
-            error.value = result?.error || '无法接入集群';
-            errorStatus.value = result?.status || null;
+            const errMsg = result?.error || '无法接入集群';
+            if (!silent || nodes.value.length === 0) {
+                error.value = errMsg;
+            }
+            lastRefreshError.value = errMsg;
         }
     } catch (err) {
-        error.value = err?.response?.data?.error || err.message || '集群离线';
-        errorStatus.value = err?.response?.status || null;
+        const errMsg = err?.response?.data?.error || err.message || '集群离线';
+        if (!silent || nodes.value.length === 0) {
+            error.value = errMsg;
+        }
+        lastRefreshError.value = errMsg;
     } finally {
         if (!silent) isLoading.value = false;
-        refreshCountdown.value = 30; // 重置倒计时
+        isRefreshing.value = false;
+        refreshCountdown.value = 60; // 重置倒计时
     }
 };
 
@@ -87,7 +102,7 @@ onMounted(() => {
             refreshCountdown.value--;
         }
     }, 1000);
-    refreshTimer = setInterval(() => loadNodes(true), 30000);
+    refreshTimer = setInterval(() => loadNodes(true), 60000);
 });
 
 const setViewMode = (mode) => {
@@ -317,9 +332,13 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
     <div class="relative z-10 max-w-7xl mx-auto px-6 py-8 lg:py-16">
         <header v-if="layout && layout.headerEnabled && theme" class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 mb-10">
             <div class="space-y-3">
-                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest" :style="{ backgroundColor: 'var(--pill-bg)', borderColor: 'var(--pill-border)', color: 'var(--pill-text)', boxShadow: '0 8px 24px var(--pill-bg)' }">
-                    <span class="w-1.5 h-1.5 rounded-full animate-pulse" :style="{ backgroundColor: 'var(--accent)' }"></span>
-                    <span>运行状态概览 · {{ refreshCountdown }}s</span>
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all" :style="{ backgroundColor: 'var(--pill-bg)', borderColor: lastRefreshError ? 'rgba(244,63,94,0.3)' : 'var(--pill-border)', color: lastRefreshError ? '#fb7185' : 'var(--pill-text)', boxShadow: '0 8px 24px var(--pill-bg)' }">
+                    <span v-if="isRefreshing" class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping"></span>
+                    <span v-else-if="lastRefreshError" class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                    <span v-else class="w-1.5 h-1.5 rounded-full animate-pulse" :style="{ backgroundColor: 'var(--accent)' }"></span>
+                    <span v-if="lastRefreshError">连接异常 · 自动重试中</span>
+                    <span v-else-if="isRefreshing">同步中...</span>
+                    <span v-else>运行状态概览 · {{ refreshCountdown }}s</span>
                 </div>
                 <h1 class="text-4xl lg:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-b" :class="darkMode ? 'from-white to-white/40' : 'from-gray-900 to-gray-600'" :style="{ textShadow: darkMode ? '0 12px 40px rgba(0,0,0,0.35)' : 'none' }">
                     <span v-if="theme.logo" class="inline-flex items-center gap-3">
@@ -502,47 +521,40 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                         <!-- LIST MODE ALTERNATIVE (NEZHA STYLE + MiPulse Unique) -->
                         <template v-if="viewMode === 'list'">
                           <div class="w-full grid grid-cols-12 gap-4 items-center">
-                            <!-- Column 1: Identity & Health (Health Dot integrated) -->
+                            <!-- Column 1-3: Identity & Uptime -->
                             <div class="col-span-12 md:col-span-3 flex items-center gap-3">
-                                <div class="relative group">
-                                    <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-sm shadow-inner transition-transform group-hover:scale-110" :class="darkMode ? 'bg-white/5' : 'bg-slate-100'" :style="{ color: 'var(--accent)' }">
+                                <div class="relative">
+                                    <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-sm shadow-inner" :class="darkMode ? 'bg-white/5' : 'bg-slate-100'" :style="{ color: 'var(--accent)' }">
                                         <span v-if="node.countryCode" class="scale-110">{{ node.countryCode.toUpperCase().replace(/./g, char => String.fromCodePoint(char.charCodeAt(0) + 127397)) }}</span>
                                         <Server v-else :size="16" />
                                     </div>
                                     <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 p-0.5 flex items-center justify-center shadow-lg" :class="darkMode ? 'border-[#020617] bg-[#020617]' : 'border-white bg-white'">
-                                        <div class="w-full h-full rounded-full" :class="node.status === 'online' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]'"></div>
+                                        <div class="w-full h-full rounded-full" :class="node.status === 'online' ? 'bg-emerald-500' : 'bg-rose-500'"></div>
                                     </div>
                                 </div>
                                 <div class="flex flex-col min-w-0">
-                                    <h4 class="text-base font-black truncate tracking-tight">{{ node.name }}</h4>
-                                    <div class="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest opacity-40">
-                                        <span class="px-1 border rounded" :style="{ borderColor: dividerColor }">{{ node.region || 'GLB' }}</span>
-                                        <span>/</span>
-                                        <span class="truncate max-w-[80px]">{{ node.groupTag || 'NODE' }}</span>
+                                    <div class="flex items-center gap-2">
+                                        <h4 class="text-sm font-black truncate tracking-tight">{{ node.name }}</h4>
+                                        <span class="text-[9px] px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/5 border opacity-60" :style="{ borderColor: dividerColor }">{{ node.region || 'GLB' }}</span>
+                                    </div>
+                                    <div class="flex items-center gap-2 mt-0.5">
+                                        <Clock :size="10" class="opacity-30" />
+                                        <span class="text-[10px] font-mono opacity-40 font-bold uppercase">{{ formatUptime(node.latest?.uptimeSec || 0) }}</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Column 2: OS & Load 1/5/15 -->
-                            <div class="hidden md:flex col-span-2 flex-col gap-1 pr-4 border-r" :style="{ borderColor: dividerColor }">
-                                <div class="flex items-center gap-1.5 overflow-hidden">
-                                    <div class="h-1.5 w-1.5 rounded-full bg-indigo-500/40"></div>
-                                    <span class="text-[11px] font-bold opacity-60 truncate">{{ node.latest?.meta?.os || 'System' }}</span>
-                                </div>
-                                <div class="flex items-center gap-1.5 font-mono text-[10px] font-black tracking-tighter">
-                                    <span :class="getLoadColor(node.latest?.load1, node.latest?.cpu?.cores)">{{ node.latest?.load1 || '0.0' }}</span>
-                                    <span class="opacity-20">/</span>
-                                    <span :class="getLoadColor(node.latest?.load5, node.latest?.cpu?.cores)">{{ node.latest?.load5 || '0.0' }}</span>
-                                    <span class="opacity-20 text-emerald-500" v-if="getLatencyPoints(node.id)[0] !== undefined">+</span>
-                                    <span class="text-emerald-500 font-bold" v-if="getLatencyPoints(node.id)[0] !== undefined">{{ getLatencyPoints(node.id)[0] }}ms</span>
-                                </div>
+                            <!-- Column 4: Load -->
+                            <div class="hidden md:flex col-span-1 flex-col gap-0.5 text-center px-2">
+                                <span class="text-[9px] font-black opacity-30 uppercase tracking-widest">Load</span>
+                                <span class="font-mono text-xs font-black" :class="getLoadColor(node.latest?.load1, node.latest?.cpu?.cores)">{{ node.latest?.load1 || '0.0' }}</span>
                             </div>
 
-                            <!-- Column 3: Resource Bars Group -->
-                            <div class="col-span-12 md:col-span-3 grid grid-cols-3 gap-5">
+                            <!-- Column 5-8: Resource Bars -->
+                            <div class="col-span-12 md:col-span-4 grid grid-cols-3 gap-4 px-4 border-x" :style="{ borderColor: dividerColor }">
                                 <div class="flex flex-col gap-1.5">
-                                    <div class="flex justify-between text-[10px] font-black tracking-tighter">
-                                        <span class="opacity-40">CPU</span>
+                                    <div class="flex justify-between text-[9px] font-black uppercase tracking-tighter opacity-50">
+                                        <span>CPU</span>
                                         <span :class="getStatusColor(node.latest?.cpuPercent || 0) === '#ef4444' ? 'text-rose-500' : ''">{{ node.latest?.cpuPercent || 0 }}%</span>
                                     </div>
                                     <div class="h-1.5 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
@@ -550,8 +562,8 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     </div>
                                 </div>
                                 <div class="flex flex-col gap-1.5">
-                                    <div class="flex justify-between text-[10px] font-black tracking-tighter">
-                                        <span class="opacity-40">MEM</span>
+                                    <div class="flex justify-between text-[9px] font-black uppercase tracking-tighter opacity-50">
+                                        <span>MEM</span>
                                         <span>{{ node.latest?.memPercent || 0 }}%</span>
                                     </div>
                                     <div class="h-1.5 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
@@ -559,8 +571,8 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     </div>
                                 </div>
                                 <div class="flex flex-col gap-1.5">
-                                    <div class="flex justify-between text-[10px] font-black tracking-tighter">
-                                        <span class="opacity-40">DSK</span>
+                                    <div class="flex justify-between text-[9px] font-black uppercase tracking-tighter opacity-50">
+                                        <span>DSK</span>
                                         <span>{{ node.latest?.diskPercent || 0 }}%</span>
                                     </div>
                                     <div class="h-1.5 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
@@ -569,21 +581,30 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 </div>
                             </div>
 
-                            <!-- Column 4: Network Speed & Total (Right Aligned Cluster) -->
-                            <div class="col-span-12 md:col-span-4 grid grid-cols-2 gap-4 pl-4 border-l" :style="{ borderColor: dividerColor }">
-                                <div class="flex flex-col justify-center font-mono font-black">
-                                    <div class="flex items-center gap-1.5 text-emerald-500">
-                                        <ArrowUp :size="12" stroke-width="4" />
-                                        <span class="text-[11px]">{{ formatNetworkSpeed(node.latest?.traffic?.tx || 0) }}</span>
+                            <!-- Column 9-10: Network Speed -->
+                            <div class="col-span-12 md:col-span-2 flex flex-col justify-center px-4">
+                                <div class="flex flex-col font-mono font-black">
+                                    <div class="flex items-center justify-between text-emerald-500">
+                                        <div class="flex items-center gap-1"><ArrowUp :size="10" /> <span class="text-[8px] opacity-50">UP</span></div>
+                                        <span class="text-[11px]">{{ formatNetworkSpeed(node.latest?.traffic?.txSpeed || 0) }}</span>
                                     </div>
-                                    <div class="flex items-center gap-1.5 text-indigo-500">
-                                        <ArrowDown :size="12" stroke-width="4" />
-                                        <span class="text-[11px]">{{ formatNetworkSpeed(node.latest?.traffic?.rx || 0) }}</span>
+                                    <div class="flex items-center justify-between text-indigo-500 mt-0.5">
+                                        <div class="flex items-center gap-1"><ArrowDown :size="10" /> <span class="text-[8px] opacity-50">DOWN</span></div>
+                                        <span class="text-[11px]">{{ formatNetworkSpeed(node.latest?.traffic?.rxSpeed || 0) }}</span>
                                     </div>
                                 </div>
-                                <div class="flex flex-col justify-center font-mono font-black opacity-30 text-right">
-                                    <div class="text-[10px]"><span class="text-[8px] mr-1">TX</span>{{ formatBytes(node.totalTx || 0) }}</div>
-                                    <div class="text-[10px]"><span class="text-[8px] mr-1">RX</span>{{ formatBytes(node.totalRx || 0) }}</div>
+                            </div>
+
+                            <!-- Column 11-12: Total Usage & Quality -->
+                            <div class="col-span-12 md:col-span-2 flex flex-col justify-center pl-4 border-l" :style="{ borderColor: dividerColor }">
+                                <div class="flex justify-between items-center text-[10px] font-mono font-black">
+                                    <span class="opacity-30 uppercase tracking-widest text-[8px]">Total</span>
+                                    <span class="opacity-60">{{ formatBytes((node.totalRx || 0) + (node.totalTx || 0)) }}</span>
+                                </div>
+                                <div class="flex justify-between items-center mt-1 text-[10px] font-mono font-black">
+                                    <span class="opacity-30 uppercase tracking-widest text-[8px]">Latency</span>
+                                    <span class="text-emerald-500" v-if="getLatencyPoints(node.id)[0] !== undefined">{{ getLatencyPoints(node.id)[0] }}ms</span>
+                                    <span class="opacity-40" v-else>--</span>
                                 </div>
                             </div>
                           </div>
