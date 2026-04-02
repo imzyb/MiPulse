@@ -10,7 +10,7 @@ import VpsMetricChart from '../components/vps/VpsMetricChart.vue';
 const router = useRouter();
 const auth = useAuthStore();
 const nodes = ref([]);
-const theme = ref({
+const defaultTheme = {
     preset: 'default',
     title: 'MiPulse',
     subtitle: 'Real-time monitoring of our global infrastructure. Transparency by default.',
@@ -18,11 +18,9 @@ const theme = ref({
     backgroundImage: '',
     showStats: true,
     footerText: 'Powered by MiPulse Monitoring System'
-});
-const layout = ref({
-    headerEnabled: true,
-    footerEnabled: true
-});
+};
+const theme = ref(null);
+const layout = ref(null);
 const isLoading = ref(true);
 const error = ref('');
 const errorStatus = ref(null);
@@ -63,11 +61,11 @@ const loadNodes = async (silent = false) => {
         const result = await fetchPublicNodes();
         if (result && result.success) {
             nodes.value = result.data || [];
-            theme.value = { ...theme.value, ...(result.theme || {}) };
-            layout.value = { ...layout.value, ...(result.layout || {}) };
+            theme.value = { ...defaultTheme, ...(result.theme || {}) };
+            layout.value = { ...{ headerEnabled: true, footerEnabled: true }, ...(result.layout || {}) };
             
             // Set document title
-            const customTitle = theme.value.title || 'MiPulse';
+            const customTitle = (theme.value?.title && theme.value.title !== 'MiPulse') ? theme.value.title : 'MiPulse';
             document.title = `${customTitle} - MiPulse`;
         } else {
             error.value = result?.error || '无法接入集群';
@@ -175,8 +173,18 @@ const getLatencyPoints = (nodeId) => {
     const samples = nodeHistoryMap.value[nodeId] || [];
     if (!samples.length) return [];
     return samples.map(s => {
-        const firstCheck = s.checks?.[0];
-        return firstCheck?.latencyMs ?? null;
+        const checks = s.checks || [];
+        if (!checks.length) return null;
+
+        // 首选使用已命名的探测项再取首个有效延迟
+        const namedCheck = checks.find(c => c.name && c.latencyMs !== null && c.latencyMs !== undefined && c.latencyMs > 0);
+        if (namedCheck) return namedCheck.latencyMs;
+
+        const nonZeroCheck = checks.find(c => c.latencyMs !== null && c.latencyMs !== undefined && c.latencyMs > 0);
+        if (nonZeroCheck) return nonZeroCheck.latencyMs;
+
+        const firstCheck = checks[0];
+        return (firstCheck?.latencyMs !== null && firstCheck?.latencyMs !== undefined) ? firstCheck.latencyMs : null;
     });
 };
 
@@ -191,11 +199,13 @@ const getLatencyByProtocol = (nodeId) => {
         (s.checks || []).forEach(check => {
             const type = (check.type || 'icmp').toUpperCase();
             const target = check.target || check.host || 'unknown';
-            const key = `${type}:${target}`;
+            const label = check.name || `${type} ${target}`;
+            const key = `${type}:${label}`;
             if (!grouped[key]) {
-                grouped[key] = { label: `${type} ${target}`, type, target, color: colors[colorIdx++ % colors.length], points: [] };
+                grouped[key] = { label, type, target, color: colors[colorIdx++ % colors.length], points: [] };
             }
-            grouped[key].points.push(check.latencyMs ?? null);
+            const latency = (check.latencyMs !== null && check.latencyMs !== undefined) ? check.latencyMs : null;
+            grouped[key].points.push(latency);
         });
     });
     return grouped;
@@ -305,7 +315,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
 
 
     <div class="relative z-10 max-w-7xl mx-auto px-6 py-8 lg:py-16">
-        <header v-if="layout.headerEnabled" class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 mb-10">
+        <header v-if="layout && layout.headerEnabled && theme" class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 mb-10">
             <div class="space-y-3">
                 <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest" :style="{ backgroundColor: 'var(--pill-bg)', borderColor: 'var(--pill-border)', color: 'var(--pill-text)', boxShadow: '0 8px 24px var(--pill-bg)' }">
                     <span class="w-1.5 h-1.5 rounded-full animate-pulse" :style="{ backgroundColor: 'var(--accent)' }"></span>
