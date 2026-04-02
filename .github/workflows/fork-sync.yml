@@ -1,0 +1,31 @@
+name: Fork Sync
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # 每天凌晨 2 点（UTC）自动运行
+  workflow_dispatch: {} # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Sync from upstream
+        uses: repo-sync/pull-request@v2
+        with:
+          source_repo: imzyb/MiPulse
+          source_branch: master
+          target_branch: master
+          commit_message: "chore: sync upstream changes"
+          pr_title: "Sync upstream changes"
+          pr_body: "自动从上游仓库同步更新。"
+          delete_source_branch: false
+          pr_from_source_branch: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
