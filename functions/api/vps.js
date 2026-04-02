@@ -1071,7 +1071,7 @@ async function updateNode(db, node) {
   await db.prepare(
     `UPDATE vps_nodes
      SET name = ?, tag = ?, group_tag = ?, region = ?, country_code = ?, description = ?, secret = ?, status = ?, enabled = ?,
-         use_global_targets = ?, total_rx = ?, total_tx = ?, traffic_limit_gb = ?, updated_at = ?, last_seen_at = ?, last_report_json = ?, overload_state_json = ?
+         use_global_targets = ?, network_monitor_enabled = ?, total_rx = ?, total_tx = ?, traffic_limit_gb = ?, updated_at = ?, last_seen_at = ?, last_report_json = ?, overload_state_json = ?
      WHERE id = ?`
   ).bind(
     node.name,
@@ -1084,6 +1084,7 @@ async function updateNode(db, node) {
     node.status,
     node.enabled ? 1 : 0,
     node.useGlobalTargets ? 1 : 0,
+    node.networkMonitorEnabled !== false ? 1 : 0,
     node.totalRx || 0,
     node.totalTx || 0,
     node.trafficLimitGb || 0,
@@ -1954,6 +1955,7 @@ async function handleUpdateNode(id, request, db, env) {
     }
   });
   if (typeof body.useGlobalTargets === 'boolean') node.useGlobalTargets = body.useGlobalTargets;
+  if (typeof body.networkMonitorEnabled === 'boolean') node.networkMonitorEnabled = body.networkMonitorEnabled;
   if (typeof body.trafficLimitGb === 'number') node.trafficLimitGb = body.trafficLimitGb;
   if (typeof body.enabled === 'boolean') node.enabled = body.enabled;
   if (body.resetSecret) node.secret = crypto.randomUUID();
