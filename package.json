@@ -8,6 +8,7 @@
     "dev:wrangler": "wrangler pages dev . --proxy 5173 --local --d1 MIPULSE_DB=MIPULSE_DB --port 8787 --compatibility-date 2024-03-31",
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:wrangler\"",
     "build": "vite build",
+    "test": "node test/summarizeNode.test.js",
     "preview": "vite preview",
     "wrangler": "wrangler"
   },

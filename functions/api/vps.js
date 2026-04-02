@@ -301,6 +301,7 @@ function summarizeNode(node, latestReport, settings) {
     description: node.description,
     status,
     enabled: Boolean(node.enabled),
+    networkMonitorEnabled: node.networkMonitorEnabled !== false,
     useGlobalTargets: Boolean(node.useGlobalTargets || node.use_global_targets),
     totalRx: node.totalRx || node.total_rx || 0,
     totalTx: node.totalTx || node.total_tx || 0,
@@ -311,6 +312,9 @@ function summarizeNode(node, latestReport, settings) {
     overload: overloadInfo ? overloadInfo.overload : null
   };
 }
+
+// for unit testing
+export { summarizeNode };
 
 function resolveSettings(config) {
   return { ...DEFAULT_SETTINGS, ...(config || {}) };
@@ -1084,7 +1088,7 @@ async function updateNode(db, node) {
     node.status,
     node.enabled ? 1 : 0,
     node.useGlobalTargets ? 1 : 0,
-    node.networkMonitorEnabled !== false ? 1 : 0,
+    (node.networkMonitorEnabled === true || node.networkMonitorEnabled === 1) ? 1 : 0,
     node.totalRx || 0,
     node.totalTx || 0,
     node.trafficLimitGb || 0,

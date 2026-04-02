@@ -172,12 +172,37 @@ const handleUpdate = async () => {
   if (isUpdatingNode.value) return;
   isUpdatingNode.value = true;
   try {
-    const result = await updateVpsNode(selectedNode.value.id, formState.value);
+    // 1. 构建 payload，显式确保布尔值被正确转换
+    // 这样可以避免 formState 中某些字段为 undefined 导致的后端更新失效
+    const payload = {
+      ...formState.value,
+      // 强制转换 networkMonitorEnabled 为布尔值 (true/false)
+      // 解决后端收到 null 或 undefined 时可能产生的逻辑歧义
+      networkMonitorEnabled: !!formState.value.networkMonitorEnabled,
+      enabled: !!formState.value.enabled,
+      useGlobalTargets: !!formState.value.useGlobalTargets
+    };
+
+    // 2. 调用 API
+    const result = await updateVpsNode(selectedNode.value.id, payload);
+    
     if (result.success) {
       showToast('更新成功', 'success');
       showEditModal.value = false;
-      await loadData();
+      
+      // 3. 优化体验：立即更新本地数据，而不是等待 loadData 刷新
+      // 这能解决因 D1 数据库写入延迟或 KV 缓存未刷新导致的视觉状态回退
+      const index = nodes.value.findIndex(n => n.id === selectedNode.value.id);
+      if (index !== -1) {
+        nodes.value[index] = { ...nodes.value[index], ...result.data };
+      }
+      
+      await loadData({ silent: true }); // 静默刷新同步最终状态
+    } else {
+      showToast(result.error || '更新失败', 'error');
     }
+  } catch (error) {
+    showToast(error.message || '网络请求失败', 'error');
   } finally {
     isUpdatingNode.value = false;
   }
