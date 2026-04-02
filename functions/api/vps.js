@@ -1088,7 +1088,7 @@ async function updateNode(db, node) {
     node.status,
     node.enabled ? 1 : 0,
     node.useGlobalTargets ? 1 : 0,
-    node.networkMonitorEnabled !== false ? 1 : 0,
+    (node.networkMonitorEnabled === true || node.networkMonitorEnabled === 1) ? 1 : 0,
     node.totalRx || 0,
     node.totalTx || 0,
     node.trafficLimitGb || 0,
