@@ -471,7 +471,6 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                         {{ getLatencyPoints(node.id)[0] }}ms
                                     </span>
                                 </div>
-                            </div>
                             <div class="relative">
                                 <div class="w-3 h-3 rounded-full animate-ping absolute" :class="node.status === 'online' ? 'bg-emerald-500' : 'bg-red-500'"></div>
                                 <div class="w-3 h-3 rounded-full relative" :class="node.status === 'online' ? 'bg-emerald-500 shadow-[0_0_12px_#10b981]' : 'bg-red-500 shadow-[0_0_12px_#ef4444]'"></div>
