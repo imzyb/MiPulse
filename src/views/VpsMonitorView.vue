@@ -448,7 +448,7 @@ const handleResetConnection = async () => {
       </template>
     </Modal>
 
-     <Modal v-model:show="showDetailModal" :title="selectedNode?.name + ' 指标分析中心'" size="4xl">
+    <Modal v-model:show="showDetailModal" :title="selectedNode?.name + ' 指标分析中心'" size="4xl">
        <template #body>
          <div v-if="isDetailLoading" class="flex items-center justify-center py-20">
            <RefreshCw :size="48" class="animate-spin text-primary-500/20" />
@@ -486,12 +486,11 @@ const handleResetConnection = async () => {
               <div class="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-1">{{ formatUptime(detailPayload.latest.uptimeSec) }}</div>
             </div>
           </div>
-             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <VpsMetricChart title="CPU 负载" :points="detailReports.map(r => r.cpu?.usage || 0)" unit="%" color="#6366f1" />
-                <VpsMetricChart title="内存占用" :points="detailReports.map(r => r.mem?.usage || 0)" unit="%" color="#a855f7" />
-                <VpsMetricChart title="磁盘空间" :points="detailReports.map(r => r.disk?.usage || 0)" unit="%" color="#ec4899" />
-             </div>
-           </div>
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <VpsMetricChart title="CPU 负载" :points="detailReports.map(r => r.cpu?.usage || 0)" unit="%" color="#6366f1" />
+            <VpsMetricChart title="内存占用" :points="detailReports.map(r => r.mem?.usage || 0)" unit="%" color="#a855f7" />
+            <VpsMetricChart title="磁盘空间" :points="detailReports.map(r => r.disk?.usage || 0)" unit="%" color="#ec4899" />
+          </div>
          </div>
        </template>
      </Modal>
