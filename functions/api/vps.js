@@ -313,6 +313,9 @@ function summarizeNode(node, latestReport, settings) {
   };
 }
 
+// for unit testing
+export { summarizeNode };
+
 function resolveSettings(config) {
   return { ...DEFAULT_SETTINGS, ...(config || {}) };
 }
