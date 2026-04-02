@@ -59,6 +59,14 @@ npx wrangler login
 npm run deploy:full
 ```
 
+#### 📌 一键部署填写指南 (Dashboard Guide)
+
+如果在点击上方按钮后进入 Cloudflare 部署界面，请按照以下几点填写：
+
+1.  **D1 / KV 数据库**：下拉列表中选择 **"+ Create (新建)"**，系统将自动为你创建并填入 ID。
+2.  **构建 & 部署命令**：保持默认即可（`npm run build` 和 `npm run deploy`）。
+3.  **环境变量**：除 `JWT_SECRET` 外，所有以 `PROD_` 或 `DEV_` 开头的变量均可 **留空**，那是为高级 CI 流程准备的。
+
 ### 2. 手动分步部署 (进阶)
 
 如果你希望手动控制资源创建过程：

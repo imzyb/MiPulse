@@ -1,0 +1,28 @@
+{
+  "build": {
+    "command": "npm run build"
+  },
+  "deploy": {
+    "command": "npm run deploy"
+  },
+  "env_vars": {
+    "JWT_SECRET": {
+      "default": "mipulse-secret-key",
+      "description": "JWT 认证密钥，首次登录后请修改"
+    }
+  },
+  "d1_databases": [
+    {
+      "binding": "MIPULSE_DB",
+      "database_name": "MIPULSE_DB",
+      "description": "选择 + Create 新建数据库"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "MIPULSE_KV",
+      "namespace_name": "MIPULSE_KV",
+      "description": "选择 + Create 新建命名空间"
+    }
+  ]
+}
