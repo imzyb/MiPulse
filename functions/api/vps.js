@@ -366,20 +366,30 @@ function shouldSkipCooldown(settings, alertType) {
   return alertType === 'recovery' && settings?.vpsMonitor?.cooldownIgnoreRecovery === true;
 }
 
-async function pushAlert(db, settings, alert) {
+async function pushAlert(db, settings, alert, env = null) {
   if (!alert) return;
   const cooldownMs = getAlertCooldownMs(settings);
 
   if (!shouldSkipCooldown(settings, alert.type)) {
-    const lastSame = await db.prepare(
-      'SELECT created_at FROM vps_alerts WHERE node_id = ? AND type = ? ORDER BY created_at DESC LIMIT 1'
-    ).bind(alert.nodeId, alert.type).first();
-
-    if (lastSame?.created_at) {
-      const lastTs = new Date(lastSame.created_at).getTime();
-      if (Number.isFinite(lastTs) && (Date.now() - lastTs) < cooldownMs) {
-        return;
+    // 优化：优先从KV检查冷却时间，避免D1查询
+    let lastTs = null;
+    
+    if (env?.MIPULSE_KV) {
+      lastTs = await getAlertCooldownTimestamp(env, alert.nodeId, alert.type);
+    }
+    
+    // 如果KV中没有或者KV不可用，从D1查询（降级）
+    if (lastTs === null) {
+      const lastSame = await db.prepare(
+        'SELECT created_at FROM vps_alerts WHERE node_id = ? AND type = ? ORDER BY created_at DESC LIMIT 1'
+      ).bind(alert.nodeId, alert.type).first();
+      if (lastSame?.created_at) {
+        lastTs = new Date(lastSame.created_at).getTime();
       }
+    }
+    
+    if (lastTs && Number.isFinite(lastTs) && (Date.now() - lastTs) < cooldownMs) {
+      return;
     }
   }
 
@@ -394,40 +404,77 @@ async function pushAlert(db, settings, alert) {
      )`
   ).run();
 
+  // 更新KV缓存
+  const alertTimestamp = new Date(alert.createdAt).getTime();
+  await setAlertCooldownTimestamp(env, alert.nodeId, alert.type, alertTimestamp, cooldownMs);
+
   await dispatchNotifications(settings, alert);
 }
 
-async function pushAlertsBatch(db, settings, alerts) {
+async function pushAlertsBatch(db, settings, alerts, env = null) {
   if (!alerts.length) return;
   const cooldownMs = getAlertCooldownMs(settings);
 
-  // Batch cooldown check: single query for all alert types
-  const types = [...new Set(alerts.map(a => a.type))];
-  const placeholders = types.map(() => '?').join(',');
-  const cooldownResult = await db.prepare(
-    `SELECT type, created_at FROM vps_alerts WHERE node_id = ? AND type IN (${placeholders}) ORDER BY created_at DESC`
-  ).bind(alerts[0].nodeId, ...types).all();
-
-  const cooldownMap = new Map();
-  (cooldownResult.results || []).forEach(row => {
-    if (!cooldownMap.has(row.type)) {
-      cooldownMap.set(row.type, new Date(row.created_at).getTime());
-    }
-  });
-
+  // 优化：使用KV缓存检查冷却时间，减少D1查询
   const now = Date.now();
-  const validAlerts = alerts.filter(alert => {
-    if (shouldSkipCooldown(settings, alert.type)) return true;
-    const lastTs = cooldownMap.get(alert.type);
-    if (lastTs && (now - lastTs) < cooldownMs) return false;
-    return true;
-  });
+  const validAlerts = [];
+  const kvUnavailableTypes = new Set();
+  
+  for (const alert of alerts) {
+    if (shouldSkipCooldown(settings, alert.type)) {
+      validAlerts.push(alert);
+      continue;
+    }
+    
+    let lastTs = null;
+    
+    // 优先从KV检查
+    if (env?.MIPULSE_KV) {
+      lastTs = await getAlertCooldownTimestamp(env, alert.nodeId, alert.type);
+    }
+    
+    // 如果KV检查失败，需要从D1查询
+    if (lastTs === null && !kvUnavailableTypes.has(alert.type)) {
+      kvUnavailableTypes.add(alert.type);
+    }
+    
+    if (!lastTs || (now - lastTs) >= cooldownMs) {
+      validAlerts.push(alert);
+    }
+  }
+  
+  // 批量查询D1（仅查询KV不可用的类型）
+  if (kvUnavailableTypes.size > 0) {
+    const types = Array.from(kvUnavailableTypes);
+    const placeholders = types.map(() => '?').join(',');
+    const cooldownResult = await db.prepare(
+      `SELECT type, created_at FROM vps_alerts WHERE node_id = ? AND type IN (${placeholders}) ORDER BY created_at DESC`
+    ).bind(alerts[0].nodeId, ...types).all();
+
+    const cooldownMap = new Map();
+    (cooldownResult.results || []).forEach(row => {
+      if (!cooldownMap.has(row.type)) {
+        cooldownMap.set(row.type, new Date(row.created_at).getTime());
+      }
+    });
+    
+    // 再次过滤
+    validAlerts = validAlerts.filter(alert => {
+      const lastTs = cooldownMap.get(alert.type);
+      if (lastTs && (now - lastTs) < cooldownMs) return false;
+      return true;
+    });
+  }
 
   for (const alert of validAlerts) {
     await db.prepare(
       'INSERT INTO vps_alerts (id, node_id, type, message, created_at) VALUES (?, ?, ?, ?, ?)'
     ).bind(alert.id, alert.nodeId, alert.type, alert.message, alert.createdAt).run();
-
+    
+    // 更新KV缓存
+    const alertTimestamp = new Date(alert.createdAt).getTime();
+    await setAlertCooldownTimestamp(env, alert.nodeId, alert.type, alertTimestamp, cooldownMs);
+    
     await dispatchNotifications(settings, alert);
   }
 
@@ -582,6 +629,15 @@ const PUBLIC_SNAPSHOT_TTL_MS = 30_000; // 30s cache
 let cachedGlobalTargets = null;
 let cachedGlobalTargetsAt = 0;
 const GLOBAL_TARGETS_TTL_MS = 60_000; // 60s cache
+
+// KV cache constants
+const KV_SETTINGS_KEY = 'mipulse:settings:main';
+const KV_NODE_SECRET_PREFIX = 'mipulse:node:secret:';
+const KV_ALERT_COOLDOWN_PREFIX = 'mipulse:alert:cooldown:';
+const KV_SETTINGS_TTL_SECONDS = 300; // 5 minutes in KV
+const KV_PUBLIC_SNAPSHOT_KEY = 'mipulse:public:snapshot';
+const KV_PUBLIC_SNAPSHOT_TTL = 60; // 60 seconds
+const NODE_SECRET_CACHE = new Map(); // Memory cache for node secrets (per-worker instance)
 
 function shouldRefreshSettings() {
   return !cachedSettings || (Date.now() - cachedSettingsAt) > SETTINGS_CACHE_TTL_MS;
@@ -770,8 +826,27 @@ async function ensureSettingsTable(env) {
 }
 
 async function loadSettings(env) {
+  // 1. 检查内存缓存
   if (!shouldRefreshSettings()) return resolveSettings(cachedSettings);
   if (!env?.MIPULSE_DB) return resolveSettings();
+  
+  // 2. 尝试从 KV 获取设置（可选，需要 MIPULSE_KV 绑定）
+  if (env?.MIPULSE_KV) {
+    try {
+      const kvValue = await env.MIPULSE_KV.get(KV_SETTINGS_KEY);
+      if (kvValue) {
+        const parsed = JSON.parse(kvValue);
+        cachedSettings = parsed;
+        cachedSettingsAt = Date.now();
+        return resolveSettings(parsed);
+      }
+    } catch (error) {
+      // KV 读取失败，继续使用 D1
+      console.error('KV settings read failed, falling back to D1:', error?.message);
+    }
+  }
+
+  // 3. 从 D1 读取设置
   let row;
   try {
     row = await env.MIPULSE_DB.prepare('SELECT value FROM settings WHERE key = ?').bind(SETTINGS_KEY).first();
@@ -789,6 +864,19 @@ async function loadSettings(env) {
   }
   cachedSettings = parsed;
   cachedSettingsAt = Date.now();
+  
+  // 4. 回填 KV 缓存（后续读取更快）
+  if (env?.MIPULSE_KV) {
+    try {
+      await env.MIPULSE_KV.put(KV_SETTINGS_KEY, JSON.stringify(parsed), { 
+        expirationTtl: KV_SETTINGS_TTL_SECONDS 
+      });
+    } catch (error) {
+      // KV 写入失败不影响主流程
+      console.error('KV settings write failed:', error?.message);
+    }
+  }
+  
   return resolveSettings(parsed);
 }
 
@@ -806,7 +894,110 @@ async function saveSettings(env, settings) {
       'INSERT INTO settings (key, value, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at'
     ).bind(SETTINGS_KEY, JSON.stringify(settings), now, now).run();
   }
+  
+  // 更新缓存
+  cachedSettings = settings;
+  cachedSettingsAt = Date.now();
+  
+  // 更新 KV 缓存
+  if (env?.MIPULSE_KV) {
+    try {
+      await env.MIPULSE_KV.put(KV_SETTINGS_KEY, JSON.stringify(settings), { 
+        expirationTtl: KV_SETTINGS_TTL_SECONDS 
+      });
+    } catch (error) {
+      console.error('KV settings update failed:', error?.message);
+    }
+  }
 }
+
+// --- KV Cache Helpers ---
+
+/**
+ * 快速获取node的secret（用于报告验证）
+ * 优先使用KV缓存，避免D1查询
+ */
+async function getNodeSecretFast(env, nodeId) {
+  // 1. 检查内存缓存
+  if (NODE_SECRET_CACHE.has(nodeId)) {
+    return NODE_SECRET_CACHE.get(nodeId);
+  }
+  
+  // 2. 尝试从KV获取
+  if (env?.MIPULSE_KV) {
+    try {
+      const kvKey = KV_NODE_SECRET_PREFIX + nodeId;
+      const secret = await env.MIPULSE_KV.get(kvKey);
+      if (secret) {
+        NODE_SECRET_CACHE.set(nodeId, secret);
+        return secret;
+      }
+    } catch (error) {
+      // KV读取失败，继续用D1
+      console.error('KV node secret read failed:', error?.message);
+    }
+  }
+  
+  return null; // 需要从D1查询
+}
+
+/**
+ * 缓存node的secret到KV和内存
+ */
+async function cacheNodeSecret(env, nodeId, secret) {
+  NODE_SECRET_CACHE.set(nodeId, secret);
+  
+  if (env?.MIPULSE_KV) {
+    try {
+      const kvKey = KV_NODE_SECRET_PREFIX + nodeId;
+      await env.MIPULSE_KV.put(kvKey, secret, { 
+        expirationTtl: KV_SETTINGS_TTL_SECONDS 
+      });
+    } catch (error) {
+      console.error('KV node secret write failed:', error?.message);
+    }
+  }
+}
+
+/**
+ * 清除node的secret缓存
+ */
+function invalidateNodeSecretCache(nodeId) {
+  NODE_SECRET_CACHE.delete(nodeId);
+}
+
+/**
+ * 获取alert冷却时间戳（从KV）
+ * key格式: mipulse:alert:cooldown:{nodeId}:{alertType}
+ */
+async function getAlertCooldownTimestamp(env, nodeId, alertType) {
+  if (!env?.MIPULSE_KV) return null;
+  try {
+    const key = KV_ALERT_COOLDOWN_PREFIX + nodeId + ':' + alertType;
+    const value = await env.MIPULSE_KV.get(key);
+    return value ? Number(value) : null;
+  } catch (error) {
+    console.error('KV alert cooldown read failed:', error?.message);
+    return null;
+  }
+}
+
+/**
+ * 设置alert冷却时间戳到KV
+ */
+async function setAlertCooldownTimestamp(env, nodeId, alertType, timestamp, cooldownMs) {
+  if (!env?.MIPULSE_KV) return;
+  try {
+    const key = KV_ALERT_COOLDOWN_PREFIX + nodeId + ':' + alertType;
+    const ttlSeconds = Math.ceil((cooldownMs + 30000) / 1000); // +30s buffer
+    await env.MIPULSE_KV.put(key, String(timestamp), { 
+      expirationTtl: ttlSeconds 
+    });
+  } catch (error) {
+    console.error('KV alert cooldown write failed:', error?.message);
+  }
+}
+
 
 // --- Data Access ---
 
@@ -1142,7 +1333,7 @@ async function checkAllNodesHeartbeat(db, settings) {
   }
 }
 
-async function updateNodeStatus(db, settings, node, report) {
+async function updateNodeStatus(db, settings, node, report, env = null) {
   const threshold = clampNumber(settings?.vpsMonitor?.offlineThresholdMinutes, 1, 1440, 10);
   const wasOnline = node.status === 'online';
   node.lastSeenAt = normalizeString(report.reportedAt || report.createdAt || nowIso()) || nowIso();
@@ -1205,7 +1396,7 @@ async function updateNodeStatus(db, settings, node, report) {
   }
 
   if (pendingAlerts.length) {
-    await pushAlertsBatch(db, settings, pendingAlerts);
+    await pushAlertsBatch(db, settings, pendingAlerts, env);
   }
 }
 
@@ -1700,12 +1891,10 @@ async function handleReport(request, db, env) {
   }
 
   node.lastSeenAt = normalizedReport.reportedAt;
-  await updateNodeStatus(db, settings, node, normalizedReport);
-
-  if (shouldRunHeartbeatCheck()) {
-    await checkAllNodesHeartbeat(db, settings);
-    lastHeartbeatCheckAt = Date.now();
-  }
+  // 注意: checkAllNodesHeartbeat() 已移至 Cron Trigger（scheduled 事件）
+  // 这样可以避免每个报告请求都进行全表扫描
+  // 现在只在报告中处理当前节点的离线状态更新
+  await updateNodeStatus(db, settings, node, normalizedReport, env);
 
   node.lastReport = buildSnapshot(normalizedReport, node);
   node.updatedAt = nowIso();
@@ -1813,10 +2002,27 @@ async function handleGetNodeDetail(id, db, env, request) {
 }
 
 async function handlePublicSnapshot(request, db, env) {
+  // 1. 检查内存缓存
   if (!shouldRefreshPublicSnapshot() && cachedPublicSnapshot) {
     return createJson(cachedPublicSnapshot);
   }
 
+  // 2. 尝试从 KV 缓存获取（避免重新查询D1）
+  if (env?.MIPULSE_KV) {
+    try {
+      const kvValue = await env.MIPULSE_KV.get(KV_PUBLIC_SNAPSHOT_KEY);
+      if (kvValue) {
+        const result = JSON.parse(kvValue);
+        cachedPublicSnapshot = result;
+        cachedPublicSnapshotAt = Date.now();
+        return createJson(result);
+      }
+    } catch (error) {
+      console.error('KV public snapshot read failed:', error?.message);
+    }
+  }
+
+  // 3. 从 D1 查询重建快照
   const settings = await loadSettings(env);
 
   const layout = {
@@ -1829,6 +2035,17 @@ async function handlePublicSnapshot(request, db, env) {
     const result = { success: true, data: [], theme: buildPublicThemeConfig(settings), layout };
     cachedPublicSnapshot = result;
     cachedPublicSnapshotAt = Date.now();
+    
+    // 回填 KV 缓存
+    if (env?.MIPULSE_KV) {
+      try {
+        await env.MIPULSE_KV.put(KV_PUBLIC_SNAPSHOT_KEY, JSON.stringify(result), { 
+          expirationTtl: KV_PUBLIC_SNAPSHOT_TTL 
+        });
+      } catch (error) {
+        console.error('KV public snapshot write failed:', error?.message);
+      }
+    }
     return createJson(result);
   }
 
@@ -1884,6 +2101,18 @@ async function handlePublicSnapshot(request, db, env) {
   };
   cachedPublicSnapshot = result;
   cachedPublicSnapshotAt = Date.now();
+  
+  // 4. 回填 KV 缓存
+  if (env?.MIPULSE_KV) {
+    try {
+      await env.MIPULSE_KV.put(KV_PUBLIC_SNAPSHOT_KEY, JSON.stringify(result), { 
+        expirationTtl: KV_PUBLIC_SNAPSHOT_TTL 
+      });
+    } catch (error) {
+      console.error('KV public snapshot write failed:', error?.message);
+    }
+  }
+  
   return createJson(result);
 }
 
