@@ -89,6 +89,7 @@ vps.post('/report', async (c) => {
                 diskPercent: report.diskPercent || 0, 
                 load1: report.load1 || 0, 
                 latencyMs: report.latencyMs || 0,
+                lossPercent: report.lossPercent || 0,
                 checks: report.checks || []
             }), reportedAt)
         ]);
@@ -190,8 +191,9 @@ vps.get('/public/nodes/:id', async (c) => {
             const d = JSON.parse(r.data);
             return {
                 timestamp: r.timestamp,
+                lossPercent: d.lossPercent || 0,
                 checks: d.checks && d.checks.length > 0 ? d.checks : [
-                    { name: 'Average Latency', type: 'ICMP', latencyMs: d.latencyMs || 0 }
+                    { name: 'Average Latency', type: 'ICMP', latencyMs: d.latencyMs || 0, lossPercent: d.lossPercent || 0 }
                 ]
             };
         });
@@ -235,7 +237,7 @@ vps.get('/install', async (c) => {
     const reporterScript = [
         '#!/bin/bash',
         'LOG="/opt/mipulse/reporter.log"',
-        'echo "[$(date)] MiPulse Reporter started. v1.6.3 URL=$MIPULSE_URL ID=$MIPULSE_ID" > "$LOG"',
+        'echo "[$(date)] MiPulse Reporter started. v1.6.6 URL=$MIPULSE_URL ID=$MIPULSE_ID" > "$LOG"',
         '',
         'targets=()',
         'fetch_targets() {',
@@ -258,11 +260,11 @@ vps.get('/install', async (c) => {
         '  ',
         '  cpu_percent=0',
         '  if [[ -f /proc/stat ]]; then',
-        '    l1=$(grep "^cpu " /proc/stat); t1=0; for v in ${l1#cpu }; do t1=$((t1+v)); done; i1=$(echo "$l1" | awk \'{print $5+$6}\')',
+        '    l1=$(grep "^cpu " /proc/stat); t1=$(echo "$l1" | awk \'{s=0; for(i=2;i<=NF;i++) s+=$i; print s}\'); i1=$(echo "$l1" | awk \'{print $5+$6}\')',
         '    sleep 2',
-        '    l2=$(grep "^cpu " /proc/stat); t2=0; for v in ${l2#cpu }; do t2=$((t2+v)); done; i2=$(echo "$l2" | awk \'{print $5+$6}\')',
+        '    l2=$(grep "^cpu " /proc/stat); t2=$(echo "$l2" | awk \'{s=0; for(i=2;i<=NF;i++) s+=$i; print s}\'); i2=$(echo "$l2" | awk \'{print $5+$6}\')',
         '    dt=$((t2-t1)); di=$((i2-i1))',
-        '    [[ $dt -gt 0 ]] && cpu_percent=$((100*(dt-di)/dt))',
+        '    [[ $dt -gt 0 ]] && cpu_percent=$(awk "BEGIN {printf \"%.2f\", 100*($dt-$di)/$dt}" 2>/dev/null || echo 0)',
         '  fi',
         '  ',
         '  mt=$(awk \'/^MemTotal:/{print $2}\' /proc/meminfo 2>/dev/null || echo 0); ma=$(awk \'/^MemAvailable:/{print $2}\' /proc/meminfo 2>/dev/null || echo 0)',
@@ -273,34 +275,41 @@ vps.get('/install', async (c) => {
         '  rx=$(awk \'NR>2 && $1 !~ /lo:/{gsub(/:/,\" \",$1); sum+=$2} END{print int(sum)}\' /proc/net/dev 2>/dev/null || echo 0)',
         '  tx=$(awk \'NR>2 && $1 !~ /lo:/{gsub(/:/,\" \",$1); sum+=$10} END{print int(sum)}\' /proc/net/dev 2>/dev/null || echo 0)',
         '  ',
-        '  latency_ms=0; latency_sum=0; latency_count=0; checks_json=""',
+        '  latency_ms=0; latency_sum=0; latency_count=0; loss_count=0; checks_json=""',
         '  for t in "${targets[@]}"; do',
-        '    ping_out=$(ping -c 3 -W 2 "$t" 2>&1 | tail -n 1)',
-        '    if [[ "$ping_out" == *"/"* ]]; then',
-        '      avg=$(echo "$ping_out" | awk -F\'=\' \'{print $2}\' | awk -F\'/\' \'{print $2}\' | tr -d " ms")',
-        '      if [[ ! -z "$avg" ]]; then',
-        '        latency_sum=$(echo "$latency_sum + $avg" | bc 2>/dev/null || awk "BEGIN {print $latency_sum + $avg}")',
-        '        latency_count=$((latency_count + 1))',
-        '        comma=""; [[ ! -z "$checks_json" ]] && comma=","; checks_json="${checks_json}${comma}{\\\"name\\\":\\\"$t\\\",\\\"latencyMs\\\":$avg}"',
-        '      fi',
+        '    raw_p=$(ping -c 3 -W 2 "$t" 2>&1); ping_out=$(echo "$raw_p" | tail -n 1)',
+        '    avg=0; if [[ "$ping_out" == *"/"* ]]; then',
+        '      avg=$(echo "$ping_out" | awk -F\'/\' \'{if (NF >= 7) print $(NF-2); else if (NF >= 5) print $(NF-1); else print "0"}\' | sed \'s/[^0-9.]//g\')',
+        '      if [[ -z "$avg" ]] || [[ "$avg" == "0" ]]; then avg=$(echo "$ping_out" | sed \'s/.*= *//\' | cut -d/ -f2 | awk \'{print $1}\' | tr -d " ms"); fi',
+        '    fi',
+        '    if [[ ! -z "$avg" ]] && [[ "$avg" != "0" ]]; then',
+        '      latency_sum=$(echo "$latency_sum + $avg" | bc 2>/dev/null || awk "BEGIN {print $latency_sum + $avg}")',
+        '      latency_count=$((latency_count + 1))',
+        '      comma=""; [[ ! -z "$checks_json" ]] && comma=","; checks_json="${checks_json}${comma}{\\\"name\\\":\\\"$t\\\",\\\"latencyMs\\\":$avg,\\\"loss\\\":0}"',
+        '    else',
+        '      loss_count=$((loss_count + 1))',
+        '      comma=""; [[ ! -z "$checks_json" ]] && comma=","; checks_json="${checks_json}${comma}{\\\"name\\\":\\\"$t\\\",\\\"latencyMs\\\":0,\\\"loss\\\":100}"',
+        '      echo "[$(date)] Debug: target=$t failed (100% loss). raw_tail=\"$ping_out\"" >> "$LOG"',
         '    fi',
         '  done',
         '  [[ $latency_count -gt 0 ]] && latency_ms=$(echo "scale=2; $latency_sum / $latency_count" | bc 2>/dev/null || awk "BEGIN {print $latency_sum / $latency_count}")',
+        '  target_count=${#targets[@]}',
+        '  loss_percent=0; [[ $target_count -gt 0 ]] && loss_percent=$((100 * loss_count / target_count))',
         '  ',
         '  os_info="Linux"; [[ -f /etc/os-release ]] && os_info=$(. /etc/os-release && echo "$PRETTY_NAME")',
         '  os_pretty=$(echo "$os_info" | tr -d \'"\')',
-        '  json="{\\\"cpuPercent\\\":${cpu_percent:-0},\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.6.3\\\"}}"',
+        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":$loss_percent,\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.6.6\\\"}}"',
         '  resp=$(curl -sS --connect-timeout 10 -m 30 -X POST "$MIPULSE_URL/api/vps/report" -H "Content-Type: application/json" -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" -d "$json" 2>&1) || true',
-        '  echo "[$(date)] CPU=$cpu_percent MEM=$mem_percent LAT=$latency_ms $resp" >> "$LOG"',
+        '  echo "[$(date)] CPU=$cpu_percent MEM=$mem_percent LAT=$latency_ms LOSS=$loss_percent% $resp" >> "$LOG"',
         '  tail -100 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG" 2>/dev/null',
         '  sleep 55',
         'done',
     ].join('\n');
 
     const script = `#!/bin/bash
-echo "# MiPulse Probe Universal Installer (Bash v1.6.2)"
+echo "# MiPulse Probe Universal Installer (Bash v1.6.6)"
 echo "=========================================="
-echo "  MiPulse Universal Bash Probe v1.6.2"
+echo "  MiPulse Universal Bash Probe v1.6.6"
 echo "=========================================="
 if [[ $EUID -ne 0 ]]; then echo "Error: must be root"; exit 1; fi
 mkdir -p /opt/mipulse && cd /opt/mipulse
@@ -329,7 +338,7 @@ systemctl daemon-reload
 systemctl enable mipulse-probe
 systemctl restart mipulse-probe
 echo "=========================================="
-echo "  MiPulse Bash Probe v1.6.2 installed!"
+echo "  MiPulse Bash Probe v1.6.6 installed!"
 echo "  Debug log: cat /opt/mipulse/reporter.log"
 echo "=========================================="
 `;

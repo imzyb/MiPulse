@@ -16,7 +16,7 @@ const VW = 800;
 const VH = 200;
 const PAD_TOP = 10;
 const PAD_BOTTOM = 25;
-const PAD_LEFT = 5;
+const PAD_LEFT = 35;
 const PAD_RIGHT = 5;
 const PLOT_W = VW - PAD_LEFT - PAD_RIGHT;
 const PLOT_H = VH - PAD_TOP - PAD_BOTTOM;
@@ -116,12 +116,22 @@ const getHoverData = computed(() => {
   return { timestamp: ts ? new Date(ts).toLocaleTimeString() : 'N/A', items };
 });
 
-const tooltipSvgX = computed(() => {
+const TOOLTIP_W = 140;
+const TOOLTIP_PAD = 8;
+
+const tooltipX = computed(() => {
   if (hoverIdx.value === null) return 0;
   return xForIdx(hoverIdx.value, props.labels.length || 1);
 });
 
-const tooltipAlignLeft = computed(() => tooltipSvgX.value > VW / 2);
+const tooltipPos = computed(() => {
+  let x = tooltipX.value + TOOLTIP_PAD;
+  if (x + TOOLTIP_W > VW - PAD_RIGHT) {
+    x = tooltipX.value - TOOLTIP_W - TOOLTIP_PAD;
+  }
+  if (x < PAD_LEFT) x = PAD_LEFT;
+  return { x };
+});
 
 const currentValues = computed(() => {
   return computedSeries.value.filter(s => visibleSeries.value.includes(s.label)).map(s => {
@@ -206,11 +216,11 @@ const currentValues = computed(() => {
 
         <!-- Hover Crosshair -->
         <g v-if="hoverIdx !== null" pointer-events="none">
-          <line :x1="tooltipSvgX" :y1="PAD_TOP" :x2="tooltipSvgX" :y2="PAD_TOP + PLOT_H" stroke="rgba(255,255,255,0.1)" stroke-width="1" stroke-dasharray="3,3" vector-effect="non-scaling-stroke" />
+          <line :x1="tooltipX" :y1="PAD_TOP" :x2="tooltipX" :y2="PAD_TOP + PLOT_H" stroke="rgba(255,255,255,0.1)" stroke-width="1" stroke-dasharray="3,3" vector-effect="non-scaling-stroke" />
           <circle
             v-for="s in computedSeries" :key="s.label"
             v-show="visibleSeries.includes(s.label) && s.points[hoverIdx] !== null"
-            :cx="tooltipSvgX"
+            :cx="tooltipX"
             :cy="PAD_TOP + PLOT_H - (s.points[hoverIdx] / maxValue) * PLOT_H"
             r="3" :fill="s.color" stroke="rgba(15,23,42,0.9)" stroke-width="2" vector-effect="non-scaling-stroke"
           />
@@ -218,7 +228,7 @@ const currentValues = computed(() => {
 
         <!-- Tooltip -->
         <g v-if="hoverIdx !== null && getHoverData" pointer-events="none">
-          <foreignObject :x="tooltipAlignLeft ? tooltipSvgX + 10 : tooltipSvgX - 148" y="2" width="140" height="100">
+          <foreignObject :x="tooltipPos.x" y="2" :width="TOOLTIP_W" height="100">
             <div xmlns="http://www.w3.org/1999/xhtml" class="flex flex-col gap-1.5 p-2.5 rounded-xl bg-slate-900/95 backdrop-blur-xl border border-white/10 shadow-xl">
               <div class="text-[8px] font-black tracking-widest text-white/25 border-b border-white/5 pb-1 uppercase">{{ getHoverData.timestamp }}</div>
               <div class="space-y-1">

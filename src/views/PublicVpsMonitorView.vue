@@ -186,7 +186,10 @@ const globalStats = computed(() => {
 const getMetricValue = (node, metric) => {
     if (!node?.latest) return 0;
     const report = node.latest;
-    if (metric === 'cpu') return report.cpu?.usage ?? report.cpuPercent ?? 0;
+    if (metric === 'cpu') {
+        const val = report.cpu?.usage ?? report.cpuPercent ?? 0;
+        return typeof val === 'string' ? parseFloat(val).toFixed(2) : Number(val).toFixed(2);
+    }
     if (metric === 'mem') return report.mem?.usage ?? report.memPercent ?? 0;
     if (metric === 'disk') return report.disk?.usage ?? report.diskPercent ?? 0;
     return 0;
@@ -535,9 +538,16 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 </div>
                                 <!-- Badges Area -->
                                 <div class="flex items-center gap-2 mt-4">
-                                    <span v-if="getLatencyPoints(node.id).length > 0 && getLatencyPoints(node.id)[0] !== null" class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20">
-                                        {{ getLatencyPoints(node.id)[0] }}ms
-                                    </span>
+                                    <template v-if="node.latest?.lossPercent > 0">
+                                        <span class="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-500 text-[10px] font-black border border-rose-500/20 animate-pulse">
+                                            {{ node.latest.lossPercent }}% LOSS
+                                        </span>
+                                    </template>
+                                    <template v-else-if="getLatencyPoints(node.id).length > 0 && getLatencyPoints(node.id)[0] !== null">
+                                        <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20">
+                                            {{ getLatencyPoints(node.id)[0] }}ms
+                                        </span>
+                                    </template>
                                 </div>
                             </div>
                             <div class="relative w-3 h-3">
@@ -671,8 +681,15 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 </div>
                                 <div class="flex justify-between items-center mt-1 text-[10px] font-mono font-black">
                                     <span class="opacity-30 uppercase tracking-widest text-[8px]">Network</span>
-                                    <span class="text-emerald-500" v-if="getLatencyPoints(node.id).length > 0 && getLatencyPoints(node.id)[0] !== null">{{ getLatencyPoints(node.id)[0] }}ms</span>
-                                    <span class="opacity-40" v-else>--</span>
+                                    <div class="flex items-center gap-2">
+                                        <span v-if="node.latest?.lossPercent > 0" class="text-rose-500 text-[9px] font-black animate-pulse">
+                                            {{ node.latest.lossPercent === 100 ? 'TIMEOUT' : node.latest.lossPercent + '% LOSS' }}
+                                        </span>
+                                        <span class="text-emerald-500" v-else-if="getLatencyPoints(node.id).length > 0 && getLatencyPoints(node.id)[0] !== null">
+                                            {{ getLatencyPoints(node.id)[0] }}ms
+                                        </span>
+                                        <span class="opacity-40" v-else>--</span>
+                                    </div>
                                 </div>
                             </div>
                           </div>
