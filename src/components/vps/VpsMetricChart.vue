@@ -1,280 +1,245 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
-import { Activity } from 'lucide-vue-next';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
-  title: {
-    type: String,
-    required: true
-  },
-  // Multi-series support
-  series: {
-    type: Array, // [{ label, color, points: [number | null] }]
-    default: () => []
-  },
-  // Single series fallback (legacy)
-  color: {
-    type: String,
-    default: '#06b6d4'
-  },
-  points: {
-    type: Array,
-    default: () => []
-  },
-  labels: {
-    type: Array,
-    default: () => []
-  },
-  unit: {
-    type: String,
-    default: 'ms'
-  },
-  max: {
-    type: Number,
-    default: 100
-  },
-  height: {
-    type: Number,
-    default: 200
-  }
+  title: { type: String, required: true },
+  series: { type: Array, default: () => [] },
+  color: { type: String, default: '#06b6d4' },
+  points: { type: Array, default: () => [] },
+  labels: { type: Array, default: () => [] },
+  unit: { type: String, default: 'ms' },
+  max: { type: Number, default: 1000 },
+  height: { type: Number, default: 200 }
 });
 
-// Normalized series computation
+const VW = 800;
+const VH = 200;
+const PAD_TOP = 10;
+const PAD_BOTTOM = 25;
+const PAD_LEFT = 5;
+const PAD_RIGHT = 5;
+const PLOT_W = VW - PAD_LEFT - PAD_RIGHT;
+const PLOT_H = VH - PAD_TOP - PAD_BOTTOM;
+
 const computedSeries = computed(() => {
-  if (props.series && props.series.length > 0) {
-    return props.series;
-  }
-  // Fallback to points-based single series
-  return [{
-    label: 'Average Latency',
-    color: props.color || '#06b6d4',
-    points: props.points || []
-  }];
+  if (props.series && props.series.length > 0) return props.series;
+  return [{ label: 'Average Latency', color: props.color || '#06b6d4', points: props.points || [] }];
 });
 
 const visibleSeries = ref([]);
 watch(computedSeries, (newVal) => {
   visibleSeries.value = newVal.filter(s => s.points.some(p => p !== null)).map(s => s.label);
-  // If still empty, just show all
-  if (visibleSeries.value.length === 0) {
-    visibleSeries.value = newVal.map(s => s.label);
-  }
+  if (visibleSeries.value.length === 0) visibleSeries.value = newVal.map(s => s.label);
 }, { immediate: true });
 
 const toggleSeries = (label) => {
   if (visibleSeries.value.includes(label)) {
-    if (visibleSeries.value.length > 1) {
-      visibleSeries.value = visibleSeries.value.filter(l => l !== label);
-    }
+    if (visibleSeries.value.length > 1) visibleSeries.value = visibleSeries.value.filter(l => l !== label);
   } else {
     visibleSeries.value.push(label);
   }
 };
 
-// UI Helpers
 const maxValue = computed(() => {
   let peak = props.max;
   computedSeries.value.forEach(s => {
-    s.points.forEach(p => {
-      if (p !== null && p > peak) peak = p;
-    });
+    s.points.forEach(p => { if (p !== null && p > peak) peak = p; });
   });
   return Math.ceil(peak / 20) * 20 || 20;
 });
 
 const gridLines = computed(() => {
-  const steps = 4;
+  const steps = 8;
   const lines = [];
   for (let i = 0; i <= steps; i++) {
     const val = (maxValue.value / steps) * i;
-    lines.push({
-      label: Math.round(val),
-      y: 160 - (val / maxValue.value) * 120,
-      x: 35
-    });
+    lines.push({ label: Math.round(val), y: PAD_TOP + PLOT_H - (val / maxValue.value) * PLOT_H });
   }
   return lines;
 });
 
 const xAxisLabels = computed(() => {
   if (!props.labels.length) return [];
-  const indices = [0, Math.floor(props.labels.length / 2), props.labels.length - 1];
-  return indices.map(idx => ({
-    text: props.labels[idx] ? new Date(props.labels[idx]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-    x: 45 + (idx / (props.labels.length - 1 || 1)) * 190
-  }));
+  const count = props.labels.length;
+  const maxLabels = 8;
+  const step = Math.max(1, Math.floor((count - 1) / (maxLabels - 1)));
+  const labels = [];
+  for (let i = 0; i < count; i += step) {
+    labels.push({
+      text: new Date(props.labels[i]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      x: PAD_LEFT + (i / (count - 1 || 1)) * PLOT_W
+    });
+  }
+  if (labels.length === 0 || labels[labels.length - 1].x < VW - PAD_RIGHT - 2) {
+    labels.push({
+      text: new Date(props.labels[count - 1]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      x: VW - PAD_RIGHT
+    });
+  }
+  return labels;
 });
 
-// Line Path generation with Gap Support (Breaking on null)
+const xForIdx = (i, len) => PAD_LEFT + (i / (len - 1 || 1)) * PLOT_W;
+
 const getPath = (points) => {
   if (!points.length) return '';
   let path = '';
   let inSegment = false;
-  
   points.forEach((p, i) => {
-    const x = 45 + (i / (points.length - 1 || 1)) * 190;
-    if (p === null || p === undefined) {
-      inSegment = false;
-    } else {
-      const y = 160 - (p / maxValue.value) * 120;
-      if (!inSegment) {
-        path += ` M ${x} ${y}`;
-        inSegment = true;
-      } else {
-        path += ` L ${x} ${y}`;
-      }
-    }
+    const val = (p === null || p === undefined) ? maxValue.value : p;
+    const x = xForIdx(i, points.length);
+    const y = PAD_TOP + PLOT_H - (val / maxValue.value) * PLOT_H;
+    path += inSegment ? ` L ${x} ${y}` : ` M ${x} ${y}`;
+    inSegment = true;
   });
   return path;
 };
 
-// Interaction
 const hoverIdx = ref(null);
 const handleMouseMove = (e) => {
-  const svg = e.currentTarget;
-  const rect = svg.getBoundingClientRect();
+  const container = e.currentTarget;
+  const rect = container.getBoundingClientRect();
   const x = e.clientX - rect.left;
-  const normX = (x / rect.width) * 240;
-  if (normX < 45 || normX > 235) {
-    hoverIdx.value = null;
-    return;
-  }
+  const normX = (x / rect.width) * VW;
+  if (normX < PAD_LEFT || normX > VW - PAD_RIGHT) { hoverIdx.value = null; return; }
   const count = props.labels.length || 1;
-  const idx = Math.round(((normX - 45) / 190) * (count - 1));
+  const idx = Math.round(((normX - PAD_LEFT) / PLOT_W) * (count - 1));
   hoverIdx.value = (idx >= 0 && idx < count) ? idx : null;
 };
 
 const getHoverData = computed(() => {
   if (hoverIdx.value === null) return null;
   const ts = props.labels[hoverIdx.value];
-  const items = computedSeries.value
-    .filter(s => visibleSeries.includes(s.label))
-    .map(s => ({
-      label: s.label,
-      color: s.color,
-      value: s.points[hoverIdx.value]
-    }));
+  const items = computedSeries.value.filter(s => visibleSeries.value.includes(s.label)).map(s => ({
+    label: s.label, color: s.color, value: s.points[hoverIdx.value]
+  }));
   return { timestamp: ts ? new Date(ts).toLocaleTimeString() : 'N/A', items };
+});
+
+const tooltipSvgX = computed(() => {
+  if (hoverIdx.value === null) return 0;
+  return xForIdx(hoverIdx.value, props.labels.length || 1);
+});
+
+const tooltipAlignLeft = computed(() => tooltipSvgX.value > VW / 2);
+
+const currentValues = computed(() => {
+  return computedSeries.value.filter(s => visibleSeries.value.includes(s.label)).map(s => {
+    const pts = s.points.filter(p => p !== null);
+    if (!pts.length) return { label: s.label, color: s.color, current: 0, avg: 0, min: 0 };
+    return {
+      label: s.label, color: s.color,
+      current: s.points[s.points.length - 1] ?? 0,
+      avg: pts.reduce((a, b) => a + b, 0) / pts.length,
+      min: Math.min(...pts)
+    };
+  });
 });
 </script>
 
 <template>
-  <div class="vps-metric-chart group/chart relative flex flex-col gap-4 p-6 rounded-[2.5rem] border transition-all duration-700 bg-[#020617]/40 border-white/[0.05] hover:border-white/10 shadow-2xl backdrop-blur-md">
+  <div
+    class="vps-metric-chart group/chart relative flex flex-col gap-3 p-5 rounded-[2rem] border transition-colors duration-300 bg-[#020617]/40 border-white/[0.05] hover:border-white/10 shadow-2xl backdrop-blur-md"
+    @mousemove="handleMouseMove"
+    @mouseleave="hoverIdx = null"
+  >
     <!-- Header -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-      <div class="flex items-center gap-3">
-        <div class="flex flex-col">
-            <div class="flex items-center gap-2">
-                <h3 class="text-xs font-black uppercase tracking-[0.2em] opacity-40">{{ title }}</h3>
-                <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]"></span>
-                    <span class="text-[9px] font-black text-emerald-500/80 tracking-tighter">REAL-TIME</span>
-                </div>
-            </div>
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5">
+        <h3 class="text-[11px] font-black uppercase tracking-[0.15em] opacity-50">{{ title }}</h3>
+        <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]"></span>
+          <span class="text-[8px] font-black text-emerald-500/80 tracking-tighter">LIVE</span>
         </div>
       </div>
-      
-      <!-- MiSub Style Dot Legend -->
-      <div class="flex flex-wrap gap-x-5 gap-y-2 justify-start md:justify-end">
-          <div 
-            v-for="s in computedSeries" 
-            :key="s.label"
-            @click="toggleSeries(s.label)"
-            :class="['flex items-center gap-2 cursor-pointer transition-all hover:opacity-100', visibleSeries.includes(s.label) ? 'opacity-100' : 'opacity-20 grayscale']"
-          >
-            <div class="w-2.5 h-2.5 rounded-full shadow-sm" :style="{ backgroundColor: s.color, border: '2px solid rgba(0,0,0,0.1)' }"></div>
-            <span class="text-[11px] font-bold whitespace-nowrap opacity-60 group-hover:opacity-100">{{ s.label }}</span>
-          </div>
+      <div class="flex flex-wrap gap-x-4 gap-y-1.5">
+        <div
+          v-for="s in computedSeries"
+          :key="s.label"
+          @click="toggleSeries(s.label)"
+          :class="['flex items-center gap-1.5 cursor-pointer transition-all hover:opacity-100', visibleSeries.includes(s.label) ? 'opacity-100' : 'opacity-20 grayscale']"
+        >
+          <div class="w-2 h-2 rounded-full" :style="{ backgroundColor: s.color }"></div>
+          <span class="text-[10px] font-bold whitespace-nowrap opacity-60 group-hover:opacity-100">{{ s.label }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="flex flex-wrap gap-4 px-1">
+      <div v-for="stat in currentValues" :key="stat.label" class="flex items-center gap-3">
+        <div class="flex items-center gap-1.5">
+          <div class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: stat.color }"></div>
+          <span class="text-[9px] font-bold opacity-30 uppercase tracking-wider">{{ stat.label }}</span>
+        </div>
+        <div class="flex gap-3 text-[10px] font-mono">
+          <span class="text-white/70 font-bold">{{ stat.current?.toFixed(0) || '--' }}<span class="text-[7px] opacity-30 ml-0.5">{{ unit }}</span></span>
+          <span class="text-white/20">avg {{ stat.avg?.toFixed(0) }}</span>
+          <span class="text-white/20">min {{ stat.min?.toFixed(0) }}</span>
+        </div>
       </div>
     </div>
 
     <!-- Chart Body -->
-    <div class="relative overflow-visible" :style="{ height: height + 'px' }">
-      <svg viewBox="0 0 240 180" class="w-full h-full overflow-visible" @mousemove="handleMouseMove" @mouseleave="hoverIdx = null">
-        <!-- Guidelines -->
-        <g class="grid-lines">
-          <template v-for="(line, idx) in gridLines" :key="line.y">
-            <line x1="45" :y1="line.y" x2="235" :y2="line.y" stroke="rgba(255,255,255,0.03)" stroke-width="0.8" stroke-dasharray="3,3" />
-            <text :x="line.x" :y="line.y + 3" text-anchor="end" class="fill-white/20 text-[10px] font-bold tabular-nums">
-              {{ line.label }}
-              <tspan v-if="idx === gridLines.length - 1" class="text-[7px] opacity-40 ml-1 uppercase font-black">{{ unit }}</tspan>
-            </text>
+    <div class="relative" :style="{ height: height + 'px' }">
+      <svg :viewBox="`0 0 ${VW} ${VH}`" class="w-full h-full" preserveAspectRatio="none">
+        <!-- Y Axis Labels -->
+        <g>
+          <template v-for="line in gridLines" :key="line.y">
+            <line x1="30" :y1="line.y" :x2="VW" :y2="line.y" stroke="rgba(255,255,255,0.03)" stroke-width="1" vector-effect="non-scaling-stroke" />
+            <text x="28" :y="line.y + 3" text-anchor="end" fill="rgba(255,255,255,0.15)" font-size="8" font-weight="600">{{ line.label }}</text>
           </template>
+          <text x="28" y="12" text-anchor="end" fill="rgba(255,255,255,0.08)" font-size="7" font-weight="600">{{ unit }}</text>
         </g>
 
         <!-- X Axis Labels -->
-        <g class="x-axis">
-           <text v-for="lb in xAxisLabels" :key="lb.text" :x="lb.x" y="176" text-anchor="middle" class="fill-white/10 text-[9px] font-bold tracking-tighter">{{ lb.text }}</text>
+        <g>
+          <text v-for="lb in xAxisLabels" :key="lb.text" :x="lb.x" :y="VH - 4" text-anchor="middle" fill="rgba(255,255,255,0.08)" font-size="8" font-weight="600">{{ lb.text }}</text>
         </g>
 
         <!-- Curves -->
-        <g class="curves">
+        <g>
           <template v-for="s in computedSeries" :key="s.label">
-            <path 
-              v-if="visibleSeries.includes(s.label)"
-              :d="getPath(s.points)" 
-              fill="none" 
-              :stroke="s.color" 
-              stroke-width="2.5" 
-              stroke-linecap="round" 
-              stroke-linejoin="round"
-              class="transition-all duration-300 drop-shadow-[0_4px_12px_rgba(0,0,0,0.4)]"
-            />
+            <path v-if="visibleSeries.includes(s.label)" :d="getPath(s.points)" fill="none" :stroke="s.color" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
           </template>
         </g>
 
-        <!-- Hover Indicator -->
-        <g v-if="hoverIdx !== null" class="hover-intel pointer-events-none">
-            <line 
-                :x1="45 + (hoverIdx / (labels.length - 1 || 1)) * 190" 
-                y1="40" 
-                :x2="45 + (hoverIdx / (labels.length - 1 || 1)) * 190" 
-                y2="160" 
-                stroke="rgba(255,255,255,0.08)" 
-                stroke-width="1.2"
-                stroke-dasharray="2,2"
-            />
-            <circle 
-                v-for="s in computedSeries" 
-                :key="s.label"
-                v-show="visibleSeries.includes(s.label) && s.points[hoverIdx] !== null"
-                :cx="45 + (hoverIdx / (labels.length - 1 || 1)) * 190"
-                :cy="160 - (s.points[hoverIdx] / maxValue) * 120"
-                r="3.5"
-                :fill="s.color"
-                stroke="rgba(255,255,255,0.6)"
-                stroke-width="1"
-            />
+        <!-- Hover Crosshair -->
+        <g v-if="hoverIdx !== null" pointer-events="none">
+          <line :x1="tooltipSvgX" :y1="PAD_TOP" :x2="tooltipSvgX" :y2="PAD_TOP + PLOT_H" stroke="rgba(255,255,255,0.1)" stroke-width="1" stroke-dasharray="3,3" vector-effect="non-scaling-stroke" />
+          <circle
+            v-for="s in computedSeries" :key="s.label"
+            v-show="visibleSeries.includes(s.label) && s.points[hoverIdx] !== null"
+            :cx="tooltipSvgX"
+            :cy="PAD_TOP + PLOT_H - (s.points[hoverIdx] / maxValue) * PLOT_H"
+            r="3" :fill="s.color" stroke="rgba(15,23,42,0.9)" stroke-width="2" vector-effect="non-scaling-stroke"
+          />
+        </g>
+
+        <!-- Tooltip -->
+        <g v-if="hoverIdx !== null && getHoverData" pointer-events="none">
+          <foreignObject :x="tooltipAlignLeft ? tooltipSvgX + 10 : tooltipSvgX - 148" y="2" width="140" height="100">
+            <div xmlns="http://www.w3.org/1999/xhtml" class="flex flex-col gap-1.5 p-2.5 rounded-xl bg-slate-900/95 backdrop-blur-xl border border-white/10 shadow-xl">
+              <div class="text-[8px] font-black tracking-widest text-white/25 border-b border-white/5 pb-1 uppercase">{{ getHoverData.timestamp }}</div>
+              <div class="space-y-1">
+                <div v-for="item in getHoverData.items" :key="item.label" class="flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-1.5">
+                    <div class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="{ backgroundColor: item.color }"></div>
+                    <span class="text-[8px] font-bold text-white/50 truncate max-w-[60px]">{{ item.label }}</span>
+                  </div>
+                  <span class="text-[9px] font-black text-white tabular-nums flex-shrink-0">{{ item.value?.toFixed(1) || '--' }}<span class="text-[6px] opacity-25 ml-0.5">{{ unit }}</span></span>
+                </div>
+              </div>
+            </div>
+          </foreignObject>
         </g>
       </svg>
-
-      <!-- MiSub Style Tooltip -->
-      <div 
-        v-if="hoverIdx !== null && getHoverData" 
-        class="absolute top-0 pointer-events-none z-50 flex flex-col gap-3 p-4 rounded-3xl bg-slate-900/95 backdrop-blur-2xl border border-white/10 shadow-2xl min-w-[160px] animate-in fade-in zoom-in duration-200"
-        :style="{ 
-            left: (45 + (hoverIdx / (labels.length - 1 || 1)) * 190) > 120 ? 'auto' : (45 + (hoverIdx / (labels.length - 1 || 1)) * 190) / 240 * 100 + '%',
-            right: (45 + (hoverIdx / (labels.length - 1 || 1)) * 190) > 120 ? (240 - (45 + (hoverIdx / (labels.length - 1 || 1)) * 190)) / 240 * 100 + '%' : 'auto',
-            marginTop: '-20px'
-        }"
-      >
-        <div class="text-[11px] font-black tracking-widest text-white/30 border-b border-white/5 pb-2 uppercase">{{ getHoverData.timestamp }}</div>
-        <div class="space-y-2">
-          <div v-for="item in getHoverData.items" :key="item.label" class="flex items-center justify-between gap-6">
-            <div class="flex items-center gap-2.5">
-              <div class="w-2 h-2 rounded-full shadow-sm" :style="{ backgroundColor: item.color }"></div>
-              <span class="text-[11px] font-bold text-white/60">{{ item.label }}</span>
-            </div>
-            <span class="text-[12px] font-black text-white tabular-nums">{{ item.value?.toFixed(2) || '--' }}<span class="text-[8px] opacity-30 ml-1 uppercase">{{ unit }}</span></span>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .vps-metric-chart {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 </style>

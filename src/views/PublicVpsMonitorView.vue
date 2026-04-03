@@ -238,16 +238,17 @@ const getLatencyByProtocol = (nodeId) => {
     const allSamples = nodeData?.latencySamples || [];
     const targetNames = nodeData?.targetNames || {};
     
-    // 1. 自动剪裁：找到第一个有真实详细探测数据（且非平均值）的点
+    // 1. 自动剪裁：找到第一个有【真实探测记录】（非平均值且延迟 > 0）的点
     const firstValidIdx = allSamples.findIndex(s => 
         (s.checks || []).some(c => !String(c.name || '').includes('Average') && c.latencyMs > 0)
     );
-    const samples = firstValidIdx === -1 ? allSamples : allSamples.slice(firstValidIdx);
+    // 强制截断前面的“静默期”，确保曲线从 0 轴开始生长
+    const samples = firstValidIdx === -1 ? [] : allSamples.slice(firstValidIdx);
     
     if (!samples.length) return {};
     
     const protocols = {}; 
-    const colors = ['#22d3ee', '#f59e0b', '#10b981', '#f472b6', '#a78bfa', '#fb7185'];
+    const colors = ['#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
     
     // 提取剪裁后的时间戳用于 X 轴
     const timestamps = samples.map(s => s.timestamp);
@@ -738,7 +739,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                       unit="ms"
                                       :series="proto.series"
                                       :labels="proto.timestamps"
-                                      :height="200"
+                                      :height="280"
                                       class="!border-none !bg-transparent !shadow-none !backdrop-blur-none py-4"
                                     />
                                   </div>
@@ -749,7 +750,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     unit="ms"
                                     :points="getLatencyPoints(node.id)"
                                     color="var(--accent)"
-                                    :height="200"
+                                    :height="280"
                                     :max="200"
                                     class="!border-none !bg-transparent !shadow-none !backdrop-blur-none"
                                   />
@@ -809,7 +810,8 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
     max-height: 1200px;
 }
 .node-expand-container {
-    min-height: 350px;
-    transition: all 0.5s ease;
+    min-height: 420px !important;
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: visible !important;
 }
 </style>
