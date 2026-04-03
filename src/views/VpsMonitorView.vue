@@ -21,6 +21,8 @@ const config = ref({ vpsMonitor: {} });
 
 const baseOrigin = window.location.origin;
 const isRefreshing = ref(false);
+const isLoading = ref(false);
+const nodes = ref([]);
 const lastRefreshError = ref(null);
 const selectedGroup = ref('全部');
 const isCompact = ref(localStorage.getItem('mipulse_vps_compact') === 'true');
@@ -93,7 +95,7 @@ const loadData = async ({ notify = false, silent = false } = {}) => {
   try {
     const [nodesRes, settingsRes] = await Promise.all([fetchVpsNodes(), fetchSettings()]);
     if (nodesRes && nodesRes.success) {
-      nodes.value = nodesRes.data.data || [];
+      nodes.value = nodesRes.nodes || [];
       lastRefreshError.value = null;
     } else {
       const errMsg = nodesRes?.error || '无法获取服务器数据';
@@ -200,9 +202,8 @@ const handleUpdate = async () => {
       // 这能解决因 D1 数据库写入延迟或 KV 缓存未刷新导致的视觉状态回退
       const index = nodes.value.findIndex(n => n.id === selectedNode.value.id);
       if (index !== -1) {
-        nodes.value[index] = { ...nodes.value[index], ...result.data };
+        nodes.value[index] = { ...nodes.value[index], ...payload };
       }
-      
       await loadData({ silent: true }); // 静默刷新同步最终状态
     } else {
       showToast(result.error || '更新失败', 'error');
@@ -241,13 +242,22 @@ const openDetail = async (node) => {
   try {
     const result = await fetchVpsNodeDetail(node.id);
     if (result.success) {
-      detailPayload.value = result.data.data;
-      detailReports.value = result.data.reports || [];
-      detailTargets.value = result.data.targets || [];
+      detailPayload.value = result.node;
+      detailReports.value = result.reports || [];
+      detailTargets.value = result.targets || [];
     }
   } finally {
     isDetailLoading.value = false;
   }
+};
+
+const getMetricValue = (row, metric) => {
+  if (!row?.latest) return 0;
+  const report = row.latest;
+  if (metric === 'cpu') return report.cpu?.usage ?? report.cpuPercent ?? 0;
+  if (metric === 'mem') return report.mem?.usage ?? report.memPercent ?? 0;
+  if (metric === 'disk') return report.disk?.usage ?? report.diskPercent ?? 0;
+  return 0;
 };
 
 const resetForm = () => {
@@ -283,8 +293,8 @@ const openInstallGuide = async (node) => {
   selectedNode.value = node;
   try {
     const result = await fetchVpsNodeDetail(node.id);
-    if (result.success && result?.data?.guide) {
-      guidePayload.value = result.data.guide;
+    if (result.success && result.guide) {
+      guidePayload.value = result.guide;
       showGuideModal.value = true;
     } else {
       showToast('获取安装信息失败', 'error');
@@ -372,8 +382,8 @@ const handleResetConnection = async () => {
 
           <template #column-bandwidth="{ row }">
             <div class="flex flex-col items-center">
-              <span class="text-[10px] font-bold text-emerald-500">↑ {{ formatNetworkSpeed(row.latest?.traffic?.tx || 0) }}</span>
-              <span class="text-[10px] font-bold text-indigo-500">↓ {{ formatNetworkSpeed(row.latest?.traffic?.rx || 0) }}</span>
+              <span class="text-[10px] font-bold text-emerald-500">↑ {{ formatNetworkSpeed(row.latest?.traffic?.txSpeed || 0) }}</span>
+              <span class="text-[10px] font-bold text-indigo-500">↓ {{ formatNetworkSpeed(row.latest?.traffic?.rxSpeed || 0) }}</span>
             </div>
           </template>
 
@@ -523,9 +533,9 @@ const handleResetConnection = async () => {
             </div>
           </div>
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <VpsMetricChart title="CPU 负载" :points="detailReports.map(r => r.cpu?.usage || 0)" unit="%" color="#6366f1" />
-            <VpsMetricChart title="内存占用" :points="detailReports.map(r => r.mem?.usage || 0)" unit="%" color="#a855f7" />
-            <VpsMetricChart title="磁盘空间" :points="detailReports.map(r => r.disk?.usage || 0)" unit="%" color="#ec4899" />
+            <VpsMetricChart title="CPU 负载" :points="detailReports.map(r => r.cpu?.usage || r.cpuPercent || 0)" unit="%" color="#6366f1" />
+            <VpsMetricChart title="内存占用" :points="detailReports.map(r => r.mem?.usage || r.memPercent || 0)" unit="%" color="#a855f7" />
+            <VpsMetricChart title="磁盘空间" :points="detailReports.map(r => r.disk?.usage || r.diskPercent || 0)" unit="%" color="#ec4899" />
           </div>
          </div>
        </template>

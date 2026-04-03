@@ -1,15 +1,21 @@
 name = "mipulse"
 main = "src/server/index.js"
 compatibility_date = "2024-03-31"
+compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "MIPULSE_DB"
 database_name = "MIPULSE_DB"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "your-d1-database-id-here"
 
 [[kv_namespaces]]
 binding = "MIPULSE_KV"
-id = "00000000000000000000000000000000"
+id = "your-kv-namespace-id-here"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
 
 [triggers]
 crons = ["*/1 * * * *"]

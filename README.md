@@ -52,6 +52,9 @@ graph LR
 只需要登录 Cloudflare，然后运行以下命令，系统将自动创建数据库、KV、更新配置并完成发布：
 
 ```bash
+# 将warngler更新到最新版
+npm install wrangler@latest --save-dev
+
 # 确保已登录 Cloudflare
 npx wrangler login
 
@@ -65,7 +68,6 @@ npm run deploy:full
 
 1.  **D1 / KV 数据库**：下拉列表中选择 **"+ Create (新建)"**，系统将自动为你创建并填入 ID。
 2.  **构建 & 部署命令**：保持默认即可（`npm run build` 和 `npm run deploy`）。
-3.  **环境变量**：除 `JWT_SECRET` 外，所有以 `PROD_` 或 `DEV_` 开头的变量均可 **留空**，那是为高级 CI 流程准备的。
 
 ### 2. 手动分步部署 (进阶)
 

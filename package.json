@@ -5,17 +5,17 @@
   "type": "module",
   "scripts": {
     "dev:vite": "vite --port 5173",
-    "dev:wrangler": "wrangler dev --port 8787 --test-scheduled",
+    "dev:wrangler": "npx wrangler dev --port 8787 --test-scheduled",
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:wrangler\"",
     "build": "vite build",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "npm run build && npx wrangler deploy",
     "deploy:full": "node scripts/deploy-full.js",
-    "db:create": "wrangler d1 create MIPULSE_DB",
-    "db:init": "wrangler d1 execute MIPULSE_DB --file=./schema.sql",
-    "db:init:remote": "wrangler d1 execute MIPULSE_DB --file=./schema.sql --remote",
+    "db:create": "npx wrangler d1 create MIPULSE_DB",
+    "db:init": "npx wrangler d1 execute MIPULSE_DB --file=./schema.sql",
+    "db:init:remote": "npx wrangler d1 execute MIPULSE_DB --file=./schema.sql --remote",
     "test": "node test/summarizeNode.test.js",
     "preview": "vite preview",
-    "wrangler": "wrangler"
+    "wrangler": "npx wrangler"
   },
   "dependencies": {
     "axios": "^1.6.7",
@@ -33,6 +33,6 @@
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "vite": "^5.0.12",
-    "wrangler": "^3.28.1"
+    "wrangler": "^4.80.0"
   }
 }

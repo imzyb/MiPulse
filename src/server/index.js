@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import vps from './routes/vps';
 import auth from './routes/auth';
+import { authMiddleware } from './middleware/auth';
 
 const app = new Hono();
 
@@ -23,7 +25,8 @@ app.onError((err, c) => {
 // Middleware for Protected routes
 app.use('/api/vps/*', async (c, next) => {
     const path = c.req.path;
-    if (path === '/api/vps/public' || path === '/api/vps/report') {
+    const allowed = ['/api/vps/public', '/api/vps/report', '/api/vps/install', '/api/vps/uninstall'];
+    if (allowed.includes(path)) {
         return next();
     }
     return authMiddleware(c, next);
@@ -35,8 +38,31 @@ app.use('/api/auth/profile', authMiddleware);
 app.route('/api/vps', vps);
 app.route('/api/auth', auth);
 
-// Root / Health check
-app.get('/', (c) => c.text('MiPulse API is running on Hono!'));
+// --- Robust SPA Entry Point ---
+// Force Cloudflare to serve index.html for any non-API and non-asset route.
+app.get('*', async (c) => {
+    const path = c.req.path;
+    
+    // 1. API: Let Hono handle 404
+    if (path.startsWith('/api/')) return c.notFound();
+    
+    // 2. Static File: If it has an extension (and isn't .html), treat as asset
+    if (path.includes('.') && !path.endsWith('.html')) {
+        return c.env.ASSETS.fetch(c.req.raw);
+    }
+    
+    // 3. SPA Shell: Fetch the root '/' from assets (which returns index.html as 200).
+    //    IMPORTANT: Do NOT fetch '/index.html' - Cloudflare's asset engine will 307 redirect it to '/'.
+    //    Use a clean Request with only the root URL to avoid header contamination.
+    const rootUrl = new URL('/', c.req.url).toString();
+    const assetResponse = await c.env.ASSETS.fetch(new Request(rootUrl));
+    
+    // Return the HTML content but preserve the original URL in the browser
+    return new Response(assetResponse.body, {
+        status: 200,
+        headers: assetResponse.headers,
+    });
+});
 
 // --- Scheduled Task (Cron) ---
 async function handleScheduled(event, env, ctx) {
@@ -77,6 +103,10 @@ async function handleScheduled(event, env, ctx) {
 
 // Export the Worker
 export default {
-    fetch: app.fetch,
-    scheduled: handleScheduled
+    async fetch(request, env, ctx) {
+        return app.fetch(request, env, ctx);
+    },
+    async scheduled(event, env, ctx) {
+        await handleScheduled(event, env, ctx);
+    }
 };

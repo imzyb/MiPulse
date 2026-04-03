@@ -178,17 +178,17 @@ onMounted(loadData);
 
           <template #column-metrics="{ row }">
             <div class="flex items-center gap-4 text-xs font-bold text-gray-500">
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-1.5" title="CPU">
                 <Cpu :size="14" class="text-primary-500" />
-                {{ row.latest?.cpuPercent || 0 }}%
+                {{ row.latest?.cpu?.usage ?? row.latest?.cpuPercent ?? 0 }}%
               </div>
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-1.5" title="Memory">
                 <Gauge :size="14" class="text-primary-500" />
-                {{ row.latest?.memPercent || 0 }}%
+                {{ row.latest?.mem?.usage ?? row.latest?.memPercent ?? 0 }}%
               </div>
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-1.5" title="Disk">
                 <HardDrive :size="14" class="text-primary-500" />
-                {{ row.latest?.diskPercent || 0 }}%
+                {{ row.latest?.disk?.usage ?? row.latest?.diskPercent ?? 0 }}%
               </div>
             </div>
           </template>

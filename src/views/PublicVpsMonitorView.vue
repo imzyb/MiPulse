@@ -27,7 +27,7 @@ const errorStatus = ref(null);
 
 const refreshCountdown = ref(60);
 const searchQuery = ref('');
-const viewMode = ref(localStorage.getItem('mipulse_public_view_mode') || 'grid');
+const viewMode = ref(localStorage.getItem('mipulse_public_view_mode') || 'list');
 const darkMode = ref(localStorage.getItem('mipulse_public_dark_mode') !== 'false');
 const nodeHistoryMap = ref({});
 const expandedNodes = ref(new Set());
@@ -165,6 +165,15 @@ const globalStats = computed(() => {
         offlineNodes: nodes.value.filter(n => n.status === 'offline').length
     };
 });
+
+const getMetricValue = (node, metric) => {
+    if (!node?.latest) return 0;
+    const report = node.latest;
+    if (metric === 'cpu') return report.cpu?.usage ?? report.cpuPercent ?? 0;
+    if (metric === 'mem') return report.mem?.usage ?? report.memPercent ?? 0;
+    if (metric === 'disk') return report.disk?.usage ?? report.diskPercent ?? 0;
+    return 0;
+};
 
 const groupList = computed(() => {
     if (!nodes.value || nodes.value.length === 0) return [];
@@ -322,9 +331,9 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
 <template>
   <div :class="['min-h-screen selection:bg-indigo-500/30 overflow-x-hidden transition-colors duration-500', pageBg, pageText]" :style="presetVars">
     <div class="fixed inset-0 overflow-hidden pointer-events-none">
-        <div class="absolute -top-[10%] -left-[10%] w-[60%] h-[60%] rounded-full blur-[160px] animate-pulse" :style="{ backgroundColor: 'var(--glow-1)' }"></div>
-        <div class="absolute top-[20%] -right-[10%] w-[50%] h-[50%] rounded-full blur-[140px] animate-bounce duration-[15s]" :style="{ backgroundColor: 'var(--glow-2)' }"></div>
-        <div class="absolute -bottom-[15%] left-[15%] w-[70%] h-[70%] rounded-full blur-[180px]" :style="{ backgroundColor: 'var(--glow-3)' }"></div>
+        <div class="absolute -top-[10%] -left-[10%] w-[60%] h-[60%] rounded-full blur-[160px] opacity-60" :style="{ backgroundColor: 'var(--glow-1)' }"></div>
+        <div class="absolute top-[20%] -right-[10%] w-[50%] h-[50%] rounded-full blur-[140px] opacity-40" :style="{ backgroundColor: 'var(--glow-2)' }"></div>
+        <div class="absolute -bottom-[15%] left-[15%] w-[70%] h-[70%] rounded-full blur-[180px] opacity-30" :style="{ backgroundColor: 'var(--glow-3)' }"></div>
         <div v-if="theme.backgroundImage" class="absolute inset-0 bg-cover bg-center opacity-30" :style="{ backgroundImage: `url(${theme.backgroundImage})` }"></div>
         <div class="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150 mix-blend-overlay"></div>
     </div>
@@ -337,7 +346,9 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                 <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all" :style="{ backgroundColor: 'var(--pill-bg)', borderColor: lastRefreshError ? 'rgba(244,63,94,0.3)' : 'var(--pill-border)', color: lastRefreshError ? '#fb7185' : 'var(--pill-text)', boxShadow: '0 8px 24px var(--pill-bg)' }">
                     <span v-if="isRefreshing" class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping"></span>
                     <span v-else-if="lastRefreshError" class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                    <span v-else class="w-1.5 h-1.5 rounded-full animate-pulse" :style="{ backgroundColor: 'var(--accent)' }"></span>
+                    <span v-else class="w-1.5 h-1.5 rounded-full relative" :style="{ backgroundColor: 'var(--accent)' }">
+                        <span class="absolute inset-0 rounded-full animate-ping opacity-75" :style="{ backgroundColor: 'var(--accent)' }"></span>
+                    </span>
                     <span v-if="lastRefreshError">连接异常 · 自动重试中</span>
                     <span v-else-if="isRefreshing">同步中...</span>
                     <span v-else>运行状态概览 · {{ refreshCountdown }}s</span>
@@ -475,9 +486,9 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     </span>
                                 </div>
                             </div>
-                            <div class="relative">
-                                <div class="w-3 h-3 rounded-full animate-ping absolute" :class="node.status === 'online' ? 'bg-emerald-500' : 'bg-red-500'"></div>
-                                <div class="w-3 h-3 rounded-full relative" :class="node.status === 'online' ? 'bg-emerald-500 shadow-[0_0_12px_#10b981]' : 'bg-red-500 shadow-[0_0_12px_#ef4444]'"></div>
+                            <div class="relative w-3 h-3">
+                                <div class="w-full h-full rounded-full animate-ping absolute opacity-50" :class="node.status === 'online' ? 'bg-emerald-500' : 'bg-rose-500'"></div>
+                                <div class="w-full h-full rounded-full relative shadow-lg" :class="node.status === 'online' ? 'bg-emerald-500' : 'bg-rose-500'"></div>
                             </div>
                         </div>
 
@@ -486,11 +497,11 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                             <!-- CPU -->
                             <div class="space-y-1.5">
                                 <div class="flex justify-between items-baseline text-[11px] font-bold">
-                                    <span class="opacity-60">CPU 负载</span>
-                                    <span>{{ node.latest?.cpuPercent || 0 }}%</span>
+                                    <span>CPU 负载</span>
+                                    <span>{{ getMetricValue(node, 'cpu') }}%</span>
                                 </div>
                                 <div class="h-2.5 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden border p-[1px]" :style="{ borderColor: dividerColor }">
-                                    <div :style="{ width: `${node.latest?.cpuPercent || 0}%`, backgroundColor: getStatusColor(node.latest?.cpuPercent || 0) }" class="h-full rounded-full transition-all duration-1000 shadow-sm"></div>
+                                    <div :style="{ width: `${getMetricValue(node, 'cpu')}%`, backgroundColor: getStatusColor(getMetricValue(node, 'cpu')) }" class="h-full rounded-full transition-all duration-1000 shadow-sm"></div>
                                 </div>
                             </div>
                             <!-- RAM -->
@@ -500,10 +511,10 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                         <span class="opacity-60">内存</span>
                                         <span v-if="node.latest?.mem?.used" class="opacity-40 font-mono scale-90">{{ formatBytes(node.latest.mem.used) }} / {{ formatBytes(node.latest.mem.total) }}</span>
                                     </div>
-                                    <span>{{ node.latest?.memPercent || 0 }}%</span>
+                                    <span>{{ getMetricValue(node, 'mem') }}%</span>
                                 </div>
                                 <div class="h-2.5 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden border p-[1px]" :style="{ borderColor: dividerColor }">
-                                    <div :style="{ width: `${node.latest?.memPercent || 0}%`, backgroundColor: getStatusColor(node.latest?.memPercent || 0) }" class="h-full rounded-full transition-all duration-1000 shadow-sm"></div>
+                                    <div :style="{ width: `${getMetricValue(node, 'mem')}%`, backgroundColor: getStatusColor(getMetricValue(node, 'mem')) }" class="h-full rounded-full transition-all duration-1000 shadow-sm"></div>
                                 </div>
                             </div>
                             <!-- DISK -->
@@ -513,10 +524,10 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                         <span class="opacity-60">硬盘</span>
                                         <span v-if="node.latest?.disk?.used" class="opacity-40 font-mono scale-90">{{ formatBytes(node.latest.disk.used) }} / {{ formatBytes(node.latest.disk.total) }}</span>
                                     </div>
-                                    <span>{{ node.latest?.diskPercent || 0 }}%</span>
+                                    <span>{{ getMetricValue(node, 'disk') }}%</span>
                                 </div>
                                 <div class="h-2.5 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden border p-[1px]" :style="{ borderColor: dividerColor }">
-                                    <div :style="{ width: `${node.latest?.diskPercent || 0}%`, backgroundColor: getStatusColor(node.latest?.diskPercent || 0) }" class="h-full rounded-full transition-all duration-1000 shadow-sm"></div>
+                                    <div :style="{ width: `${getMetricValue(node, 'disk')}%`, backgroundColor: getStatusColor(getMetricValue(node, 'disk')) }" class="h-full rounded-full transition-all duration-1000 shadow-sm"></div>
                                 </div>
                             </div>
                         </div>
@@ -558,28 +569,28 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 <div class="flex flex-col gap-1.5">
                                     <div class="flex justify-between text-[9px] font-black uppercase tracking-tighter opacity-50">
                                         <span>CPU</span>
-                                        <span :class="getStatusColor(node.latest?.cpuPercent || 0) === '#ef4444' ? 'text-rose-500' : ''">{{ node.latest?.cpuPercent || 0 }}%</span>
+                                        <span :class="getStatusColor(getMetricValue(node, 'cpu')) === '#ef4444' ? 'text-rose-500' : ''">{{ getMetricValue(node, 'cpu') }}%</span>
                                     </div>
                                     <div class="h-1 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
-                                        <div :style="{ width: `${node.latest?.cpuPercent || 0}%`, backgroundColor: getStatusColor(node.latest?.cpuPercent || 0) }" class="h-full rounded-full transition-all duration-700"></div>
+                                        <div :style="{ width: `${getMetricValue(node, 'cpu')}%`, backgroundColor: getStatusColor(getMetricValue(node, 'cpu')) }" class="h-full rounded-full transition-all duration-700"></div>
                                     </div>
                                 </div>
                                 <div class="flex flex-col gap-1.5">
                                     <div class="flex justify-between text-[9px] font-black uppercase tracking-tighter opacity-50">
                                         <span>MEM</span>
-                                        <span>{{ node.latest?.memPercent || 0 }}%</span>
+                                        <span>{{ getMetricValue(node, 'mem') }}%</span>
                                     </div>
                                     <div class="h-1 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
-                                        <div :style="{ width: `${node.latest?.memPercent || 0}%`, backgroundColor: getStatusColor(node.latest?.memPercent || 0) }" class="h-full rounded-full transition-all duration-700"></div>
+                                        <div :style="{ width: `${getMetricValue(node, 'mem')}%`, backgroundColor: getStatusColor(getMetricValue(node, 'mem')) }" class="h-full rounded-full transition-all duration-700"></div>
                                     </div>
                                 </div>
                                 <div class="flex flex-col gap-1.5">
                                     <div class="flex justify-between text-[9px] font-black uppercase tracking-tighter opacity-50">
                                         <span>DSK</span>
-                                        <span>{{ node.latest?.diskPercent || 0 }}%</span>
+                                        <span>{{ getMetricValue(node, 'disk') }}%</span>
                                     </div>
                                     <div class="h-1 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
-                                        <div :style="{ width: `${node.latest?.diskPercent || 0}%`, backgroundColor: getStatusColor(node.latest?.diskPercent || 0) }" class="h-full rounded-full transition-all duration-700"></div>
+                                        <div :style="{ width: `${getMetricValue(node, 'disk')}%`, backgroundColor: getStatusColor(getMetricValue(node, 'disk')) }" class="h-full rounded-full transition-all duration-700"></div>
                                     </div>
                                 </div>
                             </div>
@@ -623,11 +634,11 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 <div class="space-y-1.5 font-mono">
                                     <div class="flex justify-between items-center text-[11px]">
                                         <span class="flex items-center gap-1 text-emerald-500"><ArrowUp :size="10"/> Speed</span>
-                                        <span class="font-bold">{{ formatNetworkSpeed(node.latest?.traffic?.tx || 0) }}</span>
+                                        <span class="font-bold">{{ formatNetworkSpeed(node.latest?.traffic?.txSpeed || 0) }}</span>
                                     </div>
                                     <div class="flex justify-between items-center text-[11px]">
                                         <span class="flex items-center gap-1 text-indigo-500"><ArrowDown :size="10"/> Speed</span>
-                                        <span class="font-bold">{{ formatNetworkSpeed(node.latest?.traffic?.rx || 0) }}</span>
+                                        <span class="font-bold">{{ formatNetworkSpeed(node.latest?.traffic?.rxSpeed || 0) }}</span>
                                     </div>
                                 </div>
                             </div>
@@ -703,7 +714,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                               <div v-if="viewMode === 'list'" class="flex flex-wrap gap-6 items-center text-[10px] font-mono opacity-50">
                                 <span v-if="node.latest?.meta?.os" class="flex items-center gap-1"><Cpu :size="11" />{{ node.latest.meta.os }}</span>
                                 <span class="flex items-center gap-1"><Clock :size="11" />{{ formatUptime(node.latest?.uptimeSec || 0) }}</span>
-                                <span class="flex items-center gap-1"><HardDrive :size="11" />{{ node.latest?.diskPercent || 0 }}% DISK</span>
+                                <span class="flex items-center gap-1"><HardDrive :size="11" />{{ getMetricValue(node, 'disk') }}% DISK</span>
                               </div>
                             </div>
                           </div>

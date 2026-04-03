@@ -23,17 +23,15 @@ const loadData = async ({ notify = false } = {}) => {
     ]);
 
     if (targetsRes?.success) {
-      targets.value = targetsRes.data || [];
+      targets.value = targetsRes.targets || [];
     }
 
-    if (settingsRes?.success) {
+    if (settingsRes?.success && settingsRes.settings) {
+      const net = settingsRes.settings.network_monitor_json || {};
       config.value = {
-        vpsMonitor: {
-          networkMonitorEnabled: true,
-          ...settingsRes.vpsMonitor
-        }
+        vpsMonitor: net
       };
-      limit.value = settingsRes?.vpsMonitor?.networkTargetsLimit || 10;
+      limit.value = net.targetsLimit || 10;
     }
     if (notify) {
       showToast('已刷新', 'success');
@@ -52,15 +50,15 @@ const handleRefresh = async () => {
 const handleSave = async () => {
   isSaving.value = true;
   try {
-    const result = await saveSettings(config.value);
-    if (result.success && result.data) {
-      config.value = {
-        vpsMonitor: {
-          ...config.value.vpsMonitor,
-          ...result.data.vpsMonitor
-        }
-      };
-      limit.value = result?.data?.vpsMonitor?.networkTargetsLimit || limit.value;
+    const payload = {
+      network_monitor_json: config.value.vpsMonitor
+    };
+    const result = await saveSettings(payload);
+    if (result.success) {
+      if (result.settings?.network_monitor_json) {
+        config.value.vpsMonitor = result.settings.network_monitor_json;
+        limit.value = result.settings.network_monitor_json.targetsLimit || limit.value;
+      }
       showToast('已保存', 'success');
     } else {
       showToast(result?.error || '保存失败', 'error');
