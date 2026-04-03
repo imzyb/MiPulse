@@ -290,6 +290,11 @@ vps.get('/install', async (c) => {
         '      avg=$(echo "$ping_out" | awk -F\'/\' \'{if (NF >= 7) print $(NF-2); else if (NF >= 5) print $(NF-1); else print "0"}\' | sed \'s/[^0-9.]//g\' | tr -d \'\n\r\')',
         '      if [[ -z "$avg" ]] || [[ "$avg" == "0" ]]; then avg=$(echo "$ping_out" | sed \'s/.*= *//\' | cut -d/ -f2 | awk \'{print $1}\' | tr -d " ms" | tr -d \'\n\r\'); fi',
         '    fi',
+        '    if [[ -z "$avg" ]] || [[ "$avg" == "0" ]]; then',
+        '      tcp_lat=$(curl -o /dev/null -s -w "%{time_connect}\\n" --connect-timeout 2 "https://$t" 2>/dev/null) || tcp_lat=""',
+        '      if [[ -z "$tcp_lat" ]] || [[ "$tcp_lat" == "0.000" ]]; then tcp_lat=$(curl -o /dev/null -s -w "%{time_connect}\\n" --connect-timeout 2 "http://$t" 2>/dev/null) || tcp_lat=""; fi',
+        '      if [[ ! -z "$tcp_lat" ]] && [[ "$tcp_lat" != "0.000" ]]; then avg=$(awk -v t="$tcp_lat" \'BEGIN {printf "%.2f", t * 1000}\' 2>/dev/null | tr -d \'\n\r\'); fi',
+        '    fi',
         '    if [[ ! -z "$avg" ]] && [[ "$avg" != "0" ]]; then',
         '      latency_sum=$(awk -v s="$latency_sum" -v a="$avg" \'BEGIN {print s + a}\' 2>/dev/null | tr -d \'\n\r\')',
         '      latency_count=$((latency_count + 1))',
@@ -305,7 +310,7 @@ vps.get('/install', async (c) => {
         '  ',
         '  os_info="Linux"; [[ -f /etc/os-release ]] && os_info=$(. /etc/os-release && echo "$PRETTY_NAME")',
         '  os_pretty=$(echo "$os_info" | tr -d \'"\' | tr -d \'\n\r\')',
-        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":${loss_percent:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.7.0\\\"}}"',
+        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":${loss_percent:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.7.1\\\"}}"',
         '  resp=$(curl -sS --connect-timeout 10 -m 30 -X POST "$MIPULSE_URL/api/vps/report" -H "Content-Type: application/json" -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" -d "$json" 2>&1) || true',
         '  echo "[$(date)] CPU=$cpu_percent MEM=$mem_percent LAT=$latency_ms LOSS=$loss_percent% $resp" >> "$LOG"',
         '  tail -300 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG" 2>/dev/null',
@@ -314,9 +319,10 @@ vps.get('/install', async (c) => {
     ].join('\n');
 
     const script = `#!/bin/bash
-echo "# MiPulse Probe Universal Installer (Bash v1.7.0)"
+echo "# MiPulse Probe Universal Installer (Bash v1.7.1)"
 echo "=========================================="
-echo "  MiPulse Universal Bash Probe v1.7.0"
+echo "  MiPulse Universal Bash Probe v1.7.1"
+
 echo "=========================================="
 if [[ $EUID -ne 0 ]]; then echo "Error: must be root"; exit 1; fi
 mkdir -p /opt/mipulse && cd /opt/mipulse
