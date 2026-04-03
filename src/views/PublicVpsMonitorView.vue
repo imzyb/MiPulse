@@ -477,12 +477,15 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                      </div>
                  </div>
                  <div :class="['backdrop-blur-3xl rounded-xl p-3 lg:p-4 border transition-all flex flex-col justify-center min-w-[130px]', statsBg, cardBorder]" :style="{ boxShadow: darkMode ? '0 8px 30px rgba(0,0,0,0.3)' : '0 6px 20px rgba(0,0,0,0.04)' }">
-                    <div class="text-2xl font-black text-amber-500 flex items-baseline gap-0.5">
+                    <div class="text-2xl font-black flex items-baseline gap-0.5" :style="{ color: getHealthColor(onlineRate) }">
                         {{ onlineRate }}<span class="text-[9px] opacity-50 font-black">%</span>
                     </div>
                     <div class="text-[9px] font-black uppercase tracking-widest" :class="labelColor">健康指数</div>
                     <div class="mt-1.5 flex gap-0.5">
-                        <div v-for="i in 5" :key="i" class="h-1 flex-1 rounded-full" :style="{ backgroundColor: i <= (onlineRate/20) ? '#f59e0b' : dividerColor }"></div>
+                        <div v-for="i in 5" :key="i" class="h-1 flex-1 rounded-full transition-all duration-500" 
+                             :style="{ 
+                               backgroundColor: onlineRate >= (i * 20) ? getHealthColor(onlineRate) : dividerColor 
+                             }"></div>
                     </div>
                 </div>
             </div>
