@@ -106,17 +106,17 @@ const handleConfirm = () => {
 
 <template>
   <Transition name="modal-fade">
-    <div v-if="show" class="fixed inset-0 bg-slate-500/10 dark:bg-black/20 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 lg:p-8"
+    <div v-if="show" class="fixed inset-0 bg-slate-500/10 dark:bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 lg:p-8"
       @click="emit('update:show', false)" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <Transition name="modal-inner">
         <div v-if="show"
           ref="modalPanelRef"
           tabindex="-1"
-          class="rounded-[2rem] shadow-2xl w-full text-left flex flex-col max-h-[90vh] focus:outline-none overflow-hidden transition-all duration-500 text-slate-900 dark:text-white"
+          class="rounded-[2rem] w-full text-left flex flex-col max-h-[90vh] focus:outline-none overflow-hidden transition-all duration-500 text-slate-900 dark:text-white"
           :class="[
             glass 
-              ? 'bg-white/85 dark:bg-slate-900/80 backdrop-blur-[100px] border border-white/20 dark:border-white/10 ring-1 ring-white/10' 
-              : 'bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 ring-1 ring-black/5 dark:ring-white/10',
+              ? 'bg-white/70 dark:bg-white/[0.03] backdrop-blur-3xl border-white/40 dark:border-white/10 ring-1 ring-white/20 dark:ring-white/5 shadow-[0_32px_64px_-16px_rgba(15,23,42,0.1)] dark:shadow-none' 
+              : 'bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 ring-1 ring-black/5 dark:ring-white/10 shadow-2xl',
             {
               'max-w-sm': size === 'sm',
               'max-w-md': size === 'md',
@@ -147,7 +147,7 @@ const handleConfirm = () => {
 
           <div class="p-8 pt-4 flex justify-end gap-3 shrink-0 border-t"
                :class="glass 
-                 ? 'bg-transparent border-white/10' 
+                 ? 'bg-transparent border-white/10 dark:border-white/5' 
                  : 'bg-gray-50/50 dark:bg-gray-950/30 border-gray-100 dark:border-gray-800'">
             <slot name="footer">
               <button @click="emit('update:show', false)"
