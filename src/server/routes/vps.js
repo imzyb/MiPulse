@@ -52,7 +52,17 @@ vps.get('/public', async (c) => {
         const { results: latencyRows } = await db.prepare(`SELECT node_id, CAST(json_extract(data, '$.latencyMs') AS FLOAT) as latencyMs, reported_at AS reportedAt FROM (SELECT node_id, data, reported_at, ROW_NUMBER() OVER(PARTITION BY node_id ORDER BY reported_at DESC) as rn FROM vps_reports WHERE reported_at > datetime('now', '-24 hours')) WHERE rn <= 20`).all();
         const latencyMap = {}; latencyRows.forEach(r => { if (!latencyMap[r.node_id]) latencyMap[r.node_id] = []; latencyMap[r.node_id].push(r.latencyMs); });
         const data = nodes.map(n => ({ ...n, latency: latencyMap[n.id] || [], latest: n.lastReport ? JSON.parse(n.lastReport) : null }));
-        const result = { success: true, nodes: data };
+        
+        // Fetch global settings for theme and layout
+        const { results: settingsRows } = await db.prepare('SELECT key, value FROM settings WHERE key IN ("theme_json", "layout_json")').all();
+        const settings = {}; settingsRows.forEach(r => settings[r.key] = JSON.parse(r.value));
+        
+        const result = { 
+            success: true, 
+            nodes: data,
+            theme: settings.theme_json || {},
+            layout: settings.layout_json || {}
+        };
         if (kv) { try { await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: 60 }); } catch (e) {} }
         return c.json(result);
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
@@ -218,7 +228,17 @@ vps.get('/settings', async (c) => {
 });
 
 vps.post('/settings', async (c) => {
-    const db = c.env.MIPULSE_DB; const body = await c.req.json(); try { const queries = Object.entries(body).map(([k, v]) => { const val = typeof v === 'object' ? JSON.stringify(v) : String(v); return db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime("now"))').bind(k, val); }); await db.batch(queries); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    const db = c.env.MIPULSE_DB; const body = await c.req.json(); 
+    try { 
+        const queries = Object.entries(body).map(([k, v]) => { 
+            const val = typeof v === 'object' ? JSON.stringify(v) : String(v); 
+            return db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime("now"))').bind(k, val); 
+        }); 
+        await db.batch(queries); 
+        // Invalidate public cache
+        const kv = c.env.MIPULSE_KV; if (kv) { await kv.delete('cache:public_nodes'); }
+        return c.json({ success: true }); 
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
 // 8. PUBLIC: GET /install (v1.5.6 Optimized)
@@ -237,7 +257,7 @@ vps.get('/install', async (c) => {
     const reporterScript = [
         '#!/bin/bash',
         'LOG="/opt/mipulse/reporter.log"',
-        'echo "[$(date)] MiPulse Reporter started. v1.7.0 URL=$MIPULSE_URL ID=$MIPULSE_ID" >> "$LOG"',
+        'echo "[$(date)] MiPulse Reporter started. v1.7.2 URL=$MIPULSE_URL ID=$MIPULSE_ID" >> "$LOG"',
         '',
         'targets=()',
         'fetch_targets() {',
@@ -256,7 +276,7 @@ vps.get('/install', async (c) => {
         '',
         'while true; do',
         '  now=$(date +%s)',
-        '  if (( now - last_target_update > 1800 )); then fetch_targets; last_target_update=$now; fi',
+        '  if (( now - last_target_update > 300 )); then fetch_targets; last_target_update=$now; fi',
         '  ',
         '  cpu_percent="0.00"',
         '  if [[ -f /proc/stat ]]; then',
@@ -310,7 +330,7 @@ vps.get('/install', async (c) => {
         '  ',
         '  os_info="Linux"; [[ -f /etc/os-release ]] && os_info=$(. /etc/os-release && echo "$PRETTY_NAME")',
         '  os_pretty=$(echo "$os_info" | tr -d \'"\' | tr -d \'\n\r\')',
-        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":${loss_percent:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.7.1\\\"}}"',
+        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":${loss_percent:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.7.2\\\"}}"',
         '  resp=$(curl -sS --connect-timeout 10 -m 30 -X POST "$MIPULSE_URL/api/vps/report" -H "Content-Type: application/json" -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" -d "$json" 2>&1) || true',
         '  echo "[$(date)] CPU=$cpu_percent MEM=$mem_percent LAT=$latency_ms LOSS=$loss_percent% $resp" >> "$LOG"',
         '  tail -300 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG" 2>/dev/null',
@@ -321,7 +341,7 @@ vps.get('/install', async (c) => {
     const script = `#!/bin/bash
 echo "# MiPulse Probe Universal Installer (Bash v1.7.1)"
 echo "=========================================="
-echo "  MiPulse Universal Bash Probe v1.7.1"
+echo "  MiPulse Universal Bash Probe v1.7.2"
 
 echo "=========================================="
 if [[ $EUID -ne 0 ]]; then echo "Error: must be root"; exit 1; fi

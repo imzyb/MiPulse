@@ -6,6 +6,7 @@ import { fetchPublicNodes, fetchPublicNodeDetail } from '../lib/api.js';
 import { formatNetworkSpeed, formatUptime, formatBytes } from '../lib/utils.js';
 import { LayoutDashboard, ShieldCheck, Activity, Globe, Search, LayoutGrid, List, Sun, Moon, ChevronDown, ChevronUp, Server, HardDrive, Cpu, Clock, Network, ArrowUp, ArrowDown } from 'lucide-vue-next';
 import VpsMetricChart from '../components/vps/VpsMetricChart.vue';
+import Modal from '../components/forms/Modal.vue';
 
 const router = useRouter();
 const auth = useAuthStore();
@@ -35,6 +36,8 @@ let countdownTimer = null;
 let refreshTimer = null;
 const isRefreshing = ref(false);
 const lastRefreshError = ref(null);
+const showNodeDetailModal = ref(false);
+const selectedNodeForModal = ref(null);
 
 const loadNodeDetail = async (nodeId) => {
     if (nodeHistoryMap.value[nodeId]) return;
@@ -60,6 +63,16 @@ const toggleExpand = (nodeId) => {
     }
 };
 
+const handleNodeClick = (node) => {
+    if (viewMode.value === 'grid') {
+        selectedNodeForModal.value = node;
+        showNodeDetailModal.value = true;
+        loadNodeDetail(node.id);
+    } else {
+        toggleExpand(node.id);
+    }
+};
+
 const loadNodes = async (silent = false) => {
     if (!silent) {
         isLoading.value = true;
@@ -71,13 +84,25 @@ const loadNodes = async (silent = false) => {
         const result = await fetchPublicNodes();
         if (result && result.success) {
             nodes.value = result.nodes || [];
-            theme.value = { ...defaultTheme, ...(result.theme || {}) };
+            const rawTheme = result.theme || {};
+            theme.value = {
+                ...defaultTheme,
+                ...rawTheme,
+                // Map the explicit admin fields to the internal theme keys if they exist
+                title: rawTheme.publicThemeTitle || rawTheme.title || defaultTheme.title,
+                subtitle: rawTheme.publicThemeSubtitle || rawTheme.subtitle || defaultTheme.subtitle,
+                logo: rawTheme.publicThemeLogo || rawTheme.logo || defaultTheme.logo,
+                backgroundImage: rawTheme.publicThemeBackgroundImage || rawTheme.backgroundImage || defaultTheme.backgroundImage,
+                footerText: rawTheme.publicThemeFooterText || rawTheme.footerText || defaultTheme.footerText,
+                preset: rawTheme.publicThemePreset || rawTheme.preset || defaultTheme.preset
+            };
+            
             layout.value = { ...{ headerEnabled: true, footerEnabled: true }, ...(result.layout || {}) };
             lastRefreshError.value = null;
             
             // Set document title
-            const customTitle = (theme.value?.title && theme.value.title !== 'MiPulse') ? theme.value.title : 'MiPulse';
-            document.title = `${customTitle} - MiPulse`;
+            const customTitle = theme.value.title !== 'MiPulse' ? theme.value.title : 'MiPulse';
+            document.title = `${customTitle} - MiPulse Status`;
         } else {
             const errMsg = result?.error || '无法接入集群';
             if (!silent || nodes.value.length === 0) {
@@ -113,6 +138,12 @@ const loadNodes = async (silent = false) => {
 };
 
 onMounted(() => {
+    // Initial theme sync
+    if (darkMode.value) {
+        document.documentElement.classList.add('dark');
+    } else {
+        document.documentElement.classList.remove('dark');
+    }
     loadNodes();
     countdownTimer = setInterval(() => {
         if (refreshCountdown.value > 0) {
@@ -129,6 +160,7 @@ const setViewMode = (mode) => {
 
 const toggleDarkMode = () => {
     darkMode.value = !darkMode.value;
+    document.documentElement.classList.toggle('dark', darkMode.value);
     localStorage.setItem('mipulse_public_dark_mode', darkMode.value);
 };
 
@@ -263,8 +295,9 @@ const getLatencyByProtocol = (nodeId) => {
             const type = (c.type || 'ICMP').toUpperCase();
             const rawName = c.name || c.target || 'Average';
             
-            // 彻底剔除系统默认生成的 'Average' 探测项
-            if (rawName.includes('Average')) return;
+            // 只有在当前有效的监控目标列表中的项才显示
+            // 解决用户删除监控目标后，其历史数据依然显示在图表上的问题
+            if (!targetNames[rawName]) return;
             
             const name = targetNames[rawName] || rawName;
             const key = `${type}:${name}`;
@@ -297,9 +330,15 @@ const getLatencyByProtocol = (nodeId) => {
 const protocolColors = { ICMP: '#06b6d4', TCP: '#f59e0b', HTTP: '#10b981', HTTPS: '#10b981' };
 
 const getStatusColor = (percent) => {
-    if (percent >= 90) return '#ef4444'; // Red
+    if (percent >= 90) return '#ef4444'; // Red (High usage)
     if (percent >= 70) return '#f59e0b'; // Amber
     return '#10b981'; // Emerald
+};
+
+const getHealthColor = (health) => {
+    if (health >= 90) return '#10b981'; // Green (Healthy)
+    if (health >= 40) return '#f59e0b'; // Amber (Warning)
+    return '#f43f5e'; // Red (Critical)
 };
 
 const getLoadColor = (load, cores) => {
@@ -376,13 +415,13 @@ const presetVars = computed(() => {
     }
 });
 
-const pageBg = computed(() => darkMode.value ? 'bg-[#020617]' : 'bg-[#eff3f8]');
+const pageBg = computed(() => darkMode.value ? 'bg-[#020617]' : 'bg-[#f8fafc]');
 const pageText = computed(() => darkMode.value ? 'text-white' : 'text-slate-900');
-const cardBg = computed(() => darkMode.value ? 'bg-white/[0.03] backdrop-blur-3xl' : 'bg-white/90 backdrop-blur-3xl shadow-[0_32px_64px_-16px_rgba(0,0,0,0.12)]');
-const cardBorder = computed(() => darkMode.value ? 'border-white/10 ring-1 ring-white/5' : 'border-slate-200/50 ring-1 ring-black/5');
-const statsBg = computed(() => darkMode.value ? 'bg-white/[0.03] backdrop-blur-3xl' : 'bg-white shadow-[0_20px_40px_rgba(0,0,0,0.06)]');
-const labelColor = computed(() => darkMode.value ? 'text-gray-500' : 'text-slate-400');
-const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)');
+const cardBg = computed(() => darkMode.value ? 'bg-white/[0.03] backdrop-blur-3xl' : 'bg-white/70 backdrop-blur-3xl shadow-[0_32px_64px_-16px_rgba(15,23,42,0.1)]');
+const cardBorder = computed(() => darkMode.value ? 'border-white/10 ring-1 ring-white/5' : 'border-white/40 ring-1 ring-white/20');
+const statsBg = computed(() => darkMode.value ? 'bg-white/[0.03] backdrop-blur-3xl' : 'bg-white/60 shadow-[0_20px_40px_rgba(15,23,42,0.05)] backdrop-blur-xl');
+const labelColor = computed(() => darkMode.value ? 'text-gray-500' : 'text-slate-500');
+const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)');
 </script>
 
 <template>
@@ -391,8 +430,12 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
         <div class="absolute -top-[10%] -left-[10%] w-[60%] h-[60%] rounded-full blur-[160px] opacity-60" :style="{ backgroundColor: 'var(--glow-1)' }"></div>
         <div class="absolute top-[20%] -right-[10%] w-[50%] h-[50%] rounded-full blur-[140px] opacity-40" :style="{ backgroundColor: 'var(--glow-2)' }"></div>
         <div class="absolute -bottom-[15%] left-[15%] w-[70%] h-[70%] rounded-full blur-[180px] opacity-30" :style="{ backgroundColor: 'var(--glow-3)' }"></div>
-        <div v-if="theme.backgroundImage" class="absolute inset-0 bg-cover bg-center opacity-30" :style="{ backgroundImage: `url(${theme.backgroundImage})` }"></div>
-        <div class="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150 mix-blend-overlay"></div>
+        <div v-if="theme.backgroundImage" class="absolute inset-0 z-0">
+            <div class="absolute inset-0 bg-cover bg-center transition-opacity duration-1000" :style="{ backgroundImage: `url(${theme.backgroundImage})`, opacity: darkMode ? 0.4 : 0.15 }"></div>
+            <!-- Gradient Overlay to ensure text readability -->
+            <div class="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#020617]/80" v-if="darkMode"></div>
+        </div>
+        <div class="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.15] brightness-100 contrast-150 mix-blend-overlay z-10"></div>
     </div>
 
 
@@ -410,10 +453,10 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                     <span v-else-if="isRefreshing">同步中...</span>
                     <span v-else>运行状态概览 · {{ refreshCountdown }}s</span>
                 </div>
-                <h1 class="text-4xl lg:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-b" :class="darkMode ? 'from-white to-white/40' : 'from-gray-900 to-gray-600'" :style="{ textShadow: darkMode ? '0 12px 40px rgba(0,0,0,0.35)' : 'none' }">
-                    <span v-if="theme.logo" class="inline-flex items-center gap-3">
-                      <img :src="theme.logo" alt="logo" class="h-8 w-8 rounded-xl object-cover" />
-                      <span>{{ theme.title || 'MiPulse' }}</span>
+                <h1 class="text-4xl lg:text-6xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-b" :class="darkMode ? 'from-white to-white/40' : 'from-gray-900 to-gray-600'" :style="{ textShadow: darkMode ? '0 12px 40px rgba(0,0,0,0.35)' : 'none' }">
+                    <span v-if="theme.logo" class="inline-flex items-center gap-4">
+                      <img :src="theme.logo" alt="logo" class="h-12 w-12 lg:h-16 lg:w-16 rounded-[1.2rem] object-cover shadow-2xl ring-2 ring-white/10" />
+                      <span class="leading-tight">{{ theme.title || 'MiPulse' }}</span>
                     </span>
                     <span v-else>{{ theme.title || 'MiPulse' }}</span>
                 </h1>
@@ -481,8 +524,34 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
             </button>
         </div>
 
-        <div v-if="isLoading" class="flex justify-center py-20">
-            <div class="h-12 w-12 border-4 rounded-full animate-spin" :style="{ borderColor: 'rgba(255,255,255,0.08)', borderTopColor: 'var(--accent)' }"></div>
+        <div v-if="isLoading" class="space-y-12 animate-in fade-in duration-700">
+            <div v-for="i in 2" :key="i" class="space-y-6">
+                <!-- Group Title Skeleton -->
+                <div class="flex items-center gap-4">
+                    <div class="h-px flex-1 bg-black/5 dark:bg-white/5"></div>
+                    <div class="w-32 h-6 skeleton"></div>
+                    <div class="h-px flex-1 bg-black/5 dark:bg-white/5"></div>
+                </div>
+                <!-- Card/List Skeleton -->
+                <div :class="viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8' : 'flex flex-col gap-4'">
+                    <div v-for="j in 3" :key="j" :class="[
+                        'border transition-all overflow-hidden',
+                        viewMode === 'grid' ? 'rounded-[2rem] p-8 flex flex-col gap-6 h-[400px]' : 'rounded-2xl p-4 h-20',
+                        cardBg, cardBorder
+                    ]">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-2xl skeleton"></div>
+                            <div class="space-y-2 flex-1">
+                                <div class="h-4 w-24 skeleton"></div>
+                                <div class="h-3 w-32 skeleton opacity-50"></div>
+                            </div>
+                        </div>
+                        <div v-if="viewMode === 'grid'" class="space-y-4 mt-auto">
+                            <div v-for="k in 3" :key="k" class="h-2 w-full skeleton"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div v-else-if="error" class="flex flex-col items-center justify-center py-24 text-center space-y-6">
@@ -518,14 +587,14 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                       viewMode === 'grid' ? 'rounded-[2rem] p-8 flex flex-col gap-6 items-start' : 'rounded-2xl p-4 flex flex-col',
                       cardBg, cardBorder,
                       node.status === 'offline' ? 'opacity-75 grayscale-[0.5]' : ''
-                    ]" @click="toggleExpand(node.id)">
+                    ]" @click="handleNodeClick(node)">
                         
                         <!-- GRID MODE HEADER -->
                         <div v-if="viewMode === 'grid'" class="w-full flex items-start justify-between">
                             <div class="flex flex-col gap-3">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-xl shadow-lg" :style="{ backgroundColor: 'var(--accent)', color: 'white' }">
-                                        <span v-if="node.countryCode" class="scale-125">{{ node.countryCode.toUpperCase().replace(/./g, char => String.fromCodePoint(char.charCodeAt(0) + 127397)) }}</span>
+                                    <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-xl shadow-lg border border-white/10 overflow-hidden" :style="{ backgroundColor: 'var(--accent)', color: 'white' }">
+                                        <img v-if="node.countryCode" :src="`https://flagcdn.com/w80/${node.countryCode.toLowerCase()}.png`" class="w-full h-full object-cover" :alt="node.countryCode" />
                                         <Server v-else :size="20" />
                                     </div>
                                     <div class="flex flex-col">
@@ -602,8 +671,8 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                             <!-- Column 1-3: Identity & Uptime -->
                             <div class="col-span-12 md:col-span-3 flex items-center gap-3">
                                 <div class="relative">
-                                    <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-sm shadow-inner" :class="darkMode ? 'bg-white/5' : 'bg-slate-100'" :style="{ color: 'var(--accent)' }">
-                                        <span v-if="node.countryCode" class="scale-110">{{ node.countryCode.toUpperCase().replace(/./g, char => String.fromCodePoint(char.charCodeAt(0) + 127397)) }}</span>
+                                    <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-sm shadow-inner overflow-hidden" :class="darkMode ? 'bg-white/5' : 'bg-slate-100'" :style="{ color: 'var(--accent)' }">
+                                        <img v-if="node.countryCode" :src="`https://flagcdn.com/w80/${node.countryCode.toLowerCase()}.png`" class="w-full h-full object-cover opacity-80" :alt="node.countryCode" />
                                         <Server v-else :size="16" />
                                     </div>
                                     <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 p-0.5 flex items-center justify-center shadow-lg" :class="darkMode ? 'border-[#020617] bg-[#020617]' : 'border-white bg-white'">
@@ -757,6 +826,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                       :series="proto.series"
                                       :labels="proto.timestamps"
                                       :height="280"
+                                      :darkMode="darkMode"
                                       class="!border-none !bg-transparent !shadow-none !backdrop-blur-none py-4"
                                     />
                                   </div>
@@ -768,6 +838,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     :points="getLatencyPoints(node.id)"
                                     color="var(--accent)"
                                     :height="280"
+                                    :darkMode="darkMode"
                                     class="!border-none !bg-transparent !shadow-none !backdrop-blur-none"
                                   />
                                 </template>
@@ -805,26 +876,132 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                  <a href="#" class="text-gray-500 hover:text-white transition-colors uppercase text-[10px] font-black tracking-widest">Incident History</a>
             </div>
         </footer>
+
+        <!-- Detail Modal [Suggestion 3] -->
+        <Modal v-model:show="showNodeDetailModal" :title="selectedNodeForModal?.name" size="4xl" glass>
+            <template #title>
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg shadow-lg overflow-hidden" :style="{ backgroundColor: 'var(--accent)', color: 'white' }">
+                        <img v-if="selectedNodeForModal?.countryCode" :src="`https://flagcdn.com/w80/${selectedNodeForModal.countryCode.toLowerCase()}.png`" class="w-full h-full object-cover" :alt="selectedNodeForModal.countryCode" />
+                        <Server v-else :size="18" />
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-black tracking-tight">{{ selectedNodeForModal?.name }}</h3>
+                        <div class="flex items-center gap-2">
+                             <div class="w-1.5 h-1.5 rounded-full" :class="selectedNodeForModal?.status === 'online' ? 'bg-emerald-500' : 'bg-rose-500'"></div>
+                             <span class="text-[10px] font-black uppercase tracking-widest opacity-40">{{ selectedNodeForModal?.status === 'online' ? 'Online' : 'Offline' }}</span>
+                        </div>
+                    </div>
+                </div>
+            </template>
+            <template #body>
+                <div v-if="selectedNodeForModal" class="space-y-8 py-4">
+                    <!-- Metadata Grid [Suggestion 3] -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="p-4 rounded-2xl border flex flex-col gap-1" :style="{ borderColor: dividerColor, backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.5)' }">
+                            <div class="flex items-center gap-2 opacity-40">
+                                <Cpu :size="12" />
+                                <span class="text-[9px] font-black uppercase tracking-widest">OS / Kernel</span>
+                            </div>
+                            <div class="text-[11px] font-bold truncate">{{ selectedNodeForModal.latest?.meta?.os || 'Linux' }}</div>
+                            <div class="text-[9px] opacity-40 truncate">{{ selectedNodeForModal.latest?.meta?.kernel || 'Unknown Kernel' }}</div>
+                        </div>
+                        <div class="p-4 rounded-2xl border flex flex-col gap-1" :style="{ borderColor: dividerColor, backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.5)' }">
+                            <div class="flex items-center gap-2 opacity-40">
+                                <Clock :size="12" />
+                                <span class="text-[9px] font-black uppercase tracking-widest">Uptime</span>
+                            </div>
+                            <div class="text-[11px] font-bold">{{ formatUptime(selectedNodeForModal.latest?.uptimeSec || 0) }}</div>
+                            <div class="text-[9px] opacity-40">Since Last Boot</div>
+                        </div>
+                        <div class="p-4 rounded-2xl border flex flex-col gap-1" :style="{ borderColor: dividerColor, backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.5)' }">
+                            <div class="flex items-center gap-2 opacity-40">
+                                <Network :size="12" />
+                                <span class="text-[9px] font-black uppercase tracking-widest">Region / IP</span>
+                            </div>
+                            <div class="text-[11px] font-bold">{{ selectedNodeForModal.region || 'Global' }}</div>
+                            <div class="text-[9px] opacity-40">{{ selectedNodeForModal.latest?.publicIp || 'Protected IP' }}</div>
+                        </div>
+                        <div class="p-4 rounded-2xl border flex flex-col gap-2" :style="{ borderColor: dividerColor, backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.5)' }">
+                            <div class="flex items-center gap-2 opacity-40">
+                                <Activity :size="12" />
+                                <span class="text-[9px] font-black uppercase tracking-widest">健康指数</span>
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <div class="flex items-baseline gap-1" :style="{ color: getHealthColor(100 - (selectedNodeForModal.latest?.lossPercent || 0)) }">
+                                    <span class="text-2xl font-black tabular-nums">{{ 100 - (selectedNodeForModal.latest?.lossPercent || 0) }}</span>
+                                    <span class="text-[10px] font-bold opacity-60">%</span>
+                                </div>
+                                <div class="flex gap-1">
+                                    <div v-for="i in 5" :key="i" class="h-1.5 w-full rounded-full transition-all duration-500" 
+                                         :style="{ 
+                                             backgroundColor: (100 - (selectedNodeForModal.latest?.lossPercent || 0)) >= (i * 20) 
+                                                 ? getHealthColor(100 - (selectedNodeForModal.latest?.lossPercent || 0)) 
+                                                 : (darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)')
+                                         }">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Section -->
+                    <div class="space-y-6">
+                        <div class="flex items-center gap-4">
+                            <h4 class="text-sm font-black uppercase tracking-widest">Latency Analysis</h4>
+                            <div class="h-px flex-1" :style="{ backgroundColor: dividerColor }"></div>
+                        </div>
+                        <div class="space-y-4">
+                             <template v-if="Object.keys(getLatencyByProtocol(selectedNodeForModal.id)).length">
+                                <div v-for="(proto, type) in getLatencyByProtocol(selectedNodeForModal.id)" :key="type" class="p-4 rounded-2xl border" :style="{ borderColor: dividerColor }">
+                                    <VpsMetricChart
+                                        :title="`${type} 网络延迟 (ms)`"
+                                        unit="ms"
+                                        :series="proto.series"
+                                        :labels="proto.timestamps"
+                                        :height="200"
+                                        :darkMode="darkMode"
+                                        class="!border-none !bg-transparent !shadow-none !backdrop-blur-none"
+                                    />
+                                </div>
+                             </template>
+                             <div v-else class="py-20 text-center opacity-30">
+                                <Activity :size="48" class="mx-auto mb-4" />
+                                <p class="text-xs font-black uppercase tracking-widest">No detailed history available</p>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+            <template #footer>
+                <div class="w-full flex items-center justify-between">
+                    <span class="text-[10px] font-mono opacity-40 uppercase">Last Sync: {{ selectedNodeForModal?.latest?.timestamp ? new Date(selectedNodeForModal.latest.timestamp).toLocaleString() : 'N/A' }}</span>
+                    <button @click="showNodeDetailModal = false" class="px-8 py-2.5 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-black font-black text-xs uppercase tracking-widest transition-all hover:scale-105 active:scale-95 shadow-xl">
+                        Close Report
+                    </button>
+                </div>
+            </template>
+        </Modal>
     </div>
   </div>
 </template>
 
 <style scoped>
-.expand-enter-active,
-.expand-leave-active {
-    transition: all 0.3s ease;
-    overflow: hidden;
+.expand-enter-active, .expand-leave-active { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); max-height: 1000px; opacity: 1; overflow: hidden; }
+.expand-enter-from, .expand-leave-to { max-height: 0; opacity: 0; transform: translateY(-10px); }
+
+/* Skeleton Styles [Suggestion 1] */
+.skeleton { position: relative; overflow: hidden; background: rgba(156, 163, 175, 0.1); border-radius: 0.8rem; }
+.skeleton::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; left: 0; transform: translateX(-100%); background-image: linear-gradient(90deg, rgba(255,255,255,0) 0, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.1) 60%, rgba(255,255,255,0)); animation: shimmer 2s infinite; }
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.dark .skeleton { background: rgba(255, 255, 255, 0.05); }
+
+/* Responsive Polishing [Suggestion 5] */
+@media (max-width: 640px) {
+    .grid { gap: 1rem !important; }
+    .rounded-\[2rem\] { border-radius: 1.5rem !important; }
 }
-.expand-enter-from,
-.expand-leave-to {
-    opacity: 0;
-    max-height: 0;
-    padding-top: 0;
-}
-.expand-enter-to,
-.expand-leave-from {
-    max-height: 1200px;
-}
+
 .node-expand-container {
     min-height: 420px !important;
     transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);

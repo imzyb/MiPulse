@@ -23,6 +23,10 @@ const props = defineProps({
   cancelText: {
     type: String,
     default: '取消'
+  },
+  glass: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -102,22 +106,27 @@ const handleConfirm = () => {
 
 <template>
   <Transition name="modal-fade">
-    <div v-if="show" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 lg:p-8"
+    <div v-if="show" class="fixed inset-0 bg-slate-400/20 dark:bg-black/40 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 lg:p-8"
       @click="emit('update:show', false)" role="dialog" aria-modal="true" :aria-labelledby="titleId">
       <Transition name="modal-inner">
         <div v-if="show"
           ref="modalPanelRef"
           tabindex="-1"
-          class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full text-left ring-1 ring-black/5 dark:ring-white/10 flex flex-col max-h-[90vh] border border-gray-100 dark:border-gray-800 focus:outline-none overflow-hidden"
-          :class="{
-            'max-w-sm': size === 'sm',
-            'max-w-md': size === 'md',
-            'max-w-lg': size === 'lg',
-            'max-w-xl': size === 'xl',
-            'max-w-2xl': size === '2xl',
-            'max-w-4xl': size === '4xl',
-            'max-w-6xl': size === '6xl',
-          }" @click.stop>
+          class="rounded-[2rem] shadow-2xl w-full text-left flex flex-col max-h-[90vh] focus:outline-none overflow-hidden transition-all duration-500 text-slate-900 dark:text-white"
+          :class="[
+            glass 
+              ? 'bg-white/95 dark:bg-white/[0.05] backdrop-blur-3xl border border-white/20 dark:border-white/10 ring-1 ring-white/10' 
+              : 'bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 ring-1 ring-black/5 dark:ring-white/10',
+            {
+              'max-w-sm': size === 'sm',
+              'max-w-md': size === 'md',
+              'max-w-lg': size === 'lg',
+              'max-w-xl': size === 'xl',
+              'max-w-2xl': size === '2xl',
+              'max-w-4xl': size === '4xl',
+              'max-w-6xl': size === '6xl',
+            }
+          ]" @click.stop>
           
           <div class="p-8 pb-4 shrink-0 flex items-center justify-between">
             <div :id="titleId">
@@ -136,7 +145,10 @@ const handleConfirm = () => {
             </slot>
           </div>
 
-          <div class="p-8 pt-4 flex justify-end gap-3 shrink-0 bg-gray-50/50 dark:bg-gray-950/30 border-t border-gray-100 dark:border-gray-800">
+          <div class="p-8 pt-4 flex justify-end gap-3 shrink-0 border-t"
+               :class="glass 
+                 ? 'bg-transparent border-white/10' 
+                 : 'bg-gray-50/50 dark:bg-gray-950/30 border-gray-100 dark:border-gray-800'">
             <slot name="footer">
               <button @click="emit('update:show', false)"
                 class="px-6 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 font-semibold text-sm rounded-lg transition-all shadow-sm">{{
