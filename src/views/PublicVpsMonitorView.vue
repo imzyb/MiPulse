@@ -41,7 +41,10 @@ const loadNodeDetail = async (nodeId) => {
     try {
         const result = await fetchPublicNodeDetail(nodeId);
         if (result && result.success) {
-            nodeHistoryMap.value[nodeId] = result.networkSamples || [];
+            nodeHistoryMap.value[nodeId] = {
+                latencySamples: result.networkSamples || [],
+                targetNames: result.targetNames || {}
+            };
         }
     } catch (err) {
         console.error('Failed to load node detail:', err);
@@ -92,6 +95,20 @@ const loadNodes = async (silent = false) => {
         if (!silent) isLoading.value = false;
         isRefreshing.value = false;
         refreshCountdown.value = 60; // 重置倒计时
+        
+        // 自动刷新已展开节点的详情
+        if (silent && expandedNodes.value.size > 0) {
+            expandedNodes.value.forEach(id => {
+                fetchPublicNodeDetail(id).then(result => {
+                    if (result && result.success) {
+                        nodeHistoryMap.value[id] = {
+                            latencySamples: result.networkSamples || [],
+                            targetNames: result.targetNames || {}
+                        };
+                    }
+                });
+            });
+        }
     }
 };
 
@@ -196,7 +213,8 @@ const groupAccent = (index) => {
 };
 
 const getLatencyPoints = (nodeId) => {
-    const samples = nodeHistoryMap.value[nodeId] || [];
+    const nodeData = nodeHistoryMap.value[nodeId];
+    const samples = nodeData?.latencySamples || [];
     if (!samples.length) return [];
     return samples.map(s => {
         const checks = s.checks || [];
@@ -214,27 +232,62 @@ const getLatencyPoints = (nodeId) => {
     });
 };
 
-// 按协议类型分组获取延迟数据
+// 按协议类型分组获取延迟数据 (v1.6.4 支持全屏拉伸与冗余项剔除)
 const getLatencyByProtocol = (nodeId) => {
-    const samples = nodeHistoryMap.value[nodeId] || [];
+    const nodeData = nodeHistoryMap.value[nodeId];
+    const allSamples = nodeData?.latencySamples || [];
+    const targetNames = nodeData?.targetNames || {};
+    
+    // 1. 自动剪裁：找到第一个有真实详细探测数据（且非平均值）的点
+    const firstValidIdx = allSamples.findIndex(s => 
+        (s.checks || []).some(c => !String(c.name || '').includes('Average') && c.latencyMs > 0)
+    );
+    const samples = firstValidIdx === -1 ? allSamples : allSamples.slice(firstValidIdx);
+    
     if (!samples.length) return {};
-    const grouped = {}; // { 'ICMP:1.1.1.1': { label, color, points[] } }
-    const colors = ['#06b6d4', '#f59e0b', '#10b981', '#ec4899', '#a855f7', '#ef4444'];
-    let colorIdx = 0;
+    
+    const protocols = {}; 
+    const colors = ['#22d3ee', '#f59e0b', '#10b981', '#f472b6', '#a78bfa', '#fb7185'];
+    
+    // 提取剪裁后的时间戳用于 X 轴
+    const timestamps = samples.map(s => s.timestamp);
+
+    // 2. 提取所有唯一的目标名称及其协议
+    const targets = [];
     samples.forEach(s => {
-        (s.checks || []).forEach(check => {
-            const type = (check.type || 'icmp').toUpperCase();
-            const target = check.target || check.host || 'unknown';
-            const label = check.name || `${type} ${target}`;
-            const key = `${type}:${label}`;
-            if (!grouped[key]) {
-                grouped[key] = { label, type, target, color: colors[colorIdx++ % colors.length], points: [] };
+        (s.checks || []).forEach(c => {
+            const type = (c.type || 'ICMP').toUpperCase();
+            const rawName = c.name || c.target || 'Average';
+            
+            // 彻底剔除系统默认生成的 'Average' 探测项
+            if (rawName.includes('Average')) return;
+            
+            const name = targetNames[rawName] || rawName;
+            const key = `${type}:${name}`;
+            if (!targets.some(t => t.key === key)) {
+                targets.push({ key, type, name, rawName });
             }
-            const latency = (check.latencyMs !== null && check.latencyMs !== undefined) ? check.latencyMs : null;
-            grouped[key].points.push(latency);
         });
     });
-    return grouped;
+
+    // 3. 构建多系列数据，确保点对点匹配
+    targets.forEach((t, idx) => {
+        if (!protocols[t.type]) protocols[t.type] = { type: t.type, series: [], timestamps };
+        const series = { label: t.name, color: colors[idx % colors.length], points: [] };
+        
+        // 为每个样本点填充数据
+        samples.forEach(s => {
+            const check = (s.checks || []).find(c => {
+                const cType = (c.type || 'ICMP').toUpperCase();
+                const cName = c.name || c.target;
+                return cType === t.type && cName === t.rawName;
+            });
+            series.points.push(check ? check.latencyMs : null);
+        });
+        protocols[t.type].series.push(series);
+    });
+
+    return protocols;
 };
 
 const protocolColors = { ICMP: '#06b6d4', TCP: '#f59e0b', HTTP: '#10b981', HTTPS: '#10b981' };
@@ -676,25 +729,17 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                   <span v-if="node.latest?.timestamp">最后同步: {{ new Date(node.latest.timestamp).toLocaleString() }}</span>
                                 </div>
                               </div>
-                              <!-- 协议图例 -->
-                              <div class="flex flex-wrap gap-3" v-if="Object.keys(getLatencyByProtocol(node.id)).length">
-                                <div v-for="(proto, key) in getLatencyByProtocol(node.id)" :key="key" class="flex items-center gap-1.5">
-                                  <div class="w-2 h-2 rounded-full" :style="{ backgroundColor: proto.color }"></div>
-                                  <span class="text-[10px] font-bold opacity-60">{{ proto.label }}</span>
-                                </div>
-                              </div>
-                              <!-- 多协议曲线图区域 -->
+                              <!-- 多协议曲线图区域 (v1.5.8 支持多线合一) -->
                               <div :class="['rounded-xl border overflow-hidden', darkMode ? 'bg-black/20' : 'bg-slate-50/80 shadow-inner']" :style="{ borderColor: dividerColor }">
                                 <template v-if="Object.keys(getLatencyByProtocol(node.id)).length">
-                                  <div v-for="(proto, key) in getLatencyByProtocol(node.id)" :key="key" class="px-3 py-1">
+                                  <div v-for="(proto, type) in getLatencyByProtocol(node.id)" :key="type" class="px-1 py-1">
                                     <VpsMetricChart
-                                      :title="proto.label"
+                                      :title="`${type} 网络延迟`"
                                       unit="ms"
-                                      :points="proto.points"
-                                      :color="proto.color"
-                                      :height="70"
-                                      :max="500"
-                                      class="!border-none !bg-transparent !shadow-none !backdrop-blur-none"
+                                      :series="proto.series"
+                                      :labels="proto.timestamps"
+                                      :height="200"
+                                      class="!border-none !bg-transparent !shadow-none !backdrop-blur-none py-4"
                                     />
                                   </div>
                                 </template>
@@ -704,7 +749,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     unit="ms"
                                     :points="getLatencyPoints(node.id)"
                                     color="var(--accent)"
-                                    :height="80"
+                                    :height="200"
                                     :max="200"
                                     class="!border-none !bg-transparent !shadow-none !backdrop-blur-none"
                                   />
@@ -761,6 +806,10 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
 }
 .expand-enter-to,
 .expand-leave-from {
-    max-height: 300px;
+    max-height: 1200px;
+}
+.node-expand-container {
+    min-height: 350px;
+    transition: all 0.5s ease;
 }
 </style>

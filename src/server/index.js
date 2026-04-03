@@ -26,7 +26,9 @@ app.onError((err, c) => {
 app.use('/api/vps/*', async (c, next) => {
     const path = c.req.path;
     const allowed = ['/api/vps/public', '/api/vps/report', '/api/vps/install', '/api/vps/uninstall', '/api/vps/probe/targets'];
-    if (allowed.includes(path)) {
+    
+    // Explicitly allow any path starting with /api/vps/public/
+    if (allowed.includes(path) || path.startsWith('/api/vps/public/')) {
         return next();
     }
     return authMiddleware(c, next);
