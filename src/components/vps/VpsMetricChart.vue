@@ -8,7 +8,7 @@ const props = defineProps({
   points: { type: Array, default: () => [] },
   labels: { type: Array, default: () => [] },
   unit: { type: String, default: 'ms' },
-  max: { type: Number, default: 1000 },
+  max: { type: Number, default: 3000 },
   height: { type: Number, default: 200 }
 });
 

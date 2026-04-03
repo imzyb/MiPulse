@@ -768,7 +768,6 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     :points="getLatencyPoints(node.id)"
                                     color="var(--accent)"
                                     :height="280"
-                                    :max="200"
                                     class="!border-none !bg-transparent !shadow-none !backdrop-blur-none"
                                   />
                                 </template>

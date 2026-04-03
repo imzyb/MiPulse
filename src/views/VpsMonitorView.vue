@@ -533,9 +533,9 @@ const handleResetConnection = async () => {
             </div>
           </div>
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <VpsMetricChart title="CPU 负载" :points="detailReports.map(r => r.cpu?.usage || r.cpuPercent || 0)" unit="%" color="#6366f1" />
-            <VpsMetricChart title="内存占用" :points="detailReports.map(r => r.mem?.usage || r.memPercent || 0)" unit="%" color="#a855f7" />
-            <VpsMetricChart title="磁盘空间" :points="detailReports.map(r => r.disk?.usage || r.diskPercent || 0)" unit="%" color="#ec4899" />
+            <VpsMetricChart title="CPU 负载" :points="detailReports.map(r => r.cpu?.usage || r.cpuPercent || 0)" unit="%" color="#6366f1" :max="100" />
+            <VpsMetricChart title="内存占用" :points="detailReports.map(r => r.mem?.usage || r.memPercent || 0)" unit="%" color="#a855f7" :max="100" />
+            <VpsMetricChart title="磁盘空间" :points="detailReports.map(r => r.disk?.usage || r.diskPercent || 0)" unit="%" color="#ec4899" :max="100" />
           </div>
          </div>
        </template>
