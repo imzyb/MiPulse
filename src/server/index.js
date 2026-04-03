@@ -25,7 +25,7 @@ app.onError((err, c) => {
 // Middleware for Protected routes
 app.use('/api/vps/*', async (c, next) => {
     const path = c.req.path;
-    const allowed = ['/api/vps/public', '/api/vps/report', '/api/vps/install', '/api/vps/uninstall'];
+    const allowed = ['/api/vps/public', '/api/vps/report', '/api/vps/install', '/api/vps/uninstall', '/api/vps/probe/targets'];
     if (allowed.includes(path)) {
         return next();
     }

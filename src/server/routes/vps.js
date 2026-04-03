@@ -394,6 +394,31 @@ vps.delete('/targets/:id', async (c) => {
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
+// 6.5 PROBE: GET /api/vps/probe/targets (Public, limited by node secret)
+vps.get('/probe/targets', async (c) => {
+    const db = c.env.MIPULSE_DB;
+    const nodeId = c.req.query('nodeId') || c.req.header('x-node-id');
+    const secret = c.req.query('secret') || c.req.header('x-node-secret');
+
+    if (!nodeId || !secret) return c.json({ error: 'Missing credentials' }, 401);
+
+    const node = await db.prepare('SELECT id, secret, use_global_targets FROM vps_nodes WHERE id = ?').bind(nodeId).first();
+    if (!node || node.secret !== secret) return c.json({ error: 'Invalid credentials' }, 401);
+
+    try {
+        let query = 'SELECT target FROM vps_network_targets WHERE enabled = 1 AND (node_id = ?';
+        const params = [nodeId];
+        
+        if (node.use_global_targets) {
+            query += " OR node_id = 'global'";
+        }
+        query += ')';
+
+        const { results } = await db.prepare(query).bind(...params).all();
+        return c.json({ success: true, targets: results.map(r => r.target) });
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+});
+
 // 7. ADMIN: GET/POST /settings
 vps.get('/settings', async (c) => {
     const db = c.env.MIPULSE_DB;
@@ -436,7 +461,24 @@ vps.get('/install', async (c) => {
         'LOG="/opt/mipulse/reporter.log"',
         'echo "[$(date)] MiPulse Reporter started. URL=$MIPULSE_URL ID=$MIPULSE_ID" > "$LOG"',
         '',
+        '# Fetch monitoring targets',
+        'targets=()',
+        'fetch_targets() {',
+        '  local resp=$(curl -sSL "$MIPULSE_URL/api/vps/probe/targets?nodeId=$MIPULSE_ID&secret=$MIPULSE_SECRET")',
+        '  if [[ "$resp" == *"\"success\":true"* ]]; then',
+        '    targets=($(echo "$resp" | grep -oP \'"targets":\\[\\K[^\\]]+\' | tr -d \'"\' | tr \',\' \' \'))',
+        '    echo "[$(date)] Targets updated: ${targets[*]}" >> "$LOG"',
+        '  fi',
+        '}',
+        '',
+        'fetch_targets',
+        'last_target_update=$(date +%s)',
+        '',
         'while true; do',
+        '  # Refresh targets every 30 minutes',
+        '  now=$(date +%s)',
+        '  if (( now - last_target_update > 1800 )); then fetch_targets; last_target_update=$now; fi',
+        '',
         '  cpu_percent=0',
         '  if [[ -f /proc/stat ]]; then',
         '    read -r _ a1 b1 c1 d1 e1 f1 g1 h1 i1 _ < /proc/stat',
@@ -475,29 +517,48 @@ vps.get('/install', async (c) => {
         "    tx=$(awk 'NR>2 && $1 !~ /lo:/{gsub(/:/,\" \",$1); sum+=$10} END{print int(sum)}' /proc/net/dev)",
         '  fi',
         '',
+        '  # Network Latency Measurement',
+        '  latency_ms=0; latency_sum=0; latency_count=0',
+        '  for t in "${targets[@]}"; do',
+        '    avg=$(ping -c 3 -i 0.2 -W 1 "$t" 2>/dev/null | grep "rtt min/avg/max/mdev" | awk -F"/" "{print \\$5}")',
+        '    if [[ ! -z "$avg" ]]; then',
+        '      latency_sum=$(echo "$latency_sum + $avg" | bc 2>/dev/null || awk "BEGIN {print $latency_sum + $avg}")',
+        '      latency_count=$((latency_count + 1))',
+        '    fi',
+        '  done',
+        '  if [[ $latency_count -gt 0 ]]; then',
+        '    latency_ms=$(echo "scale=2; $latency_sum / $latency_count" | bc 2>/dev/null || awk "BEGIN {print $latency_sum / $latency_count}")',
+        '  fi',
+        '',
         '  os_info="Linux"',
         '  [[ -f /etc/os-release ]] && os_info=$(. /etc/os-release && echo "$PRETTY_NAME")',
         "  os_info=$(echo \"$os_info\" | tr -d '\"' | head -c 64)",
         '  kernel_info=$(uname -r 2>/dev/null || echo "unknown")',
         '',
-        "  json=$(printf '{\"cpuPercent\":%d,\"memPercent\":%d,\"diskPercent\":%d,\"uptimeSec\":%d,\"load1\":%s,\"load5\":%s,\"load15\":%s,\"traffic\":{\"rx\":%s,\"tx\":%s},\"meta\":{\"os\":\"%s\",\"kernel\":\"%s\",\"version\":\"vBash-1.3\"}}' \"$cpu_percent\" \"$mem_percent\" \"$disk_percent\" \"$uptime_sec\" \"$load1\" \"$load5\" \"$load15\" \"$rx\" \"$tx\" \"$os_info\" \"$kernel_info\")",
+        "  json=$(printf '{\"cpuPercent\":%d,\"memPercent\":%d,\"diskPercent\":%d,\"uptimeSec\":%d,\"load1\":%s,\"load5\":%s,\"load15\":%s,\"latencyMs\":%s,\"traffic\":{\"rx\":%s,\"tx\":%s},\"meta\":{\"os\":\"%s\",\"kernel\":\"%s\",\"version\":\"vBash-1.5\"}}' \"$cpu_percent\" \"$mem_percent\" \"$disk_percent\" \"$uptime_sec\" \"$load1\" \"$load5\" \"$load15\" \"$latency_ms\" \"$rx\" \"$tx\" \"$os_info\" \"$kernel_info\")",
         '',
         '  resp=$(curl -sS -w "HTTP_%{http_code}" -X POST "$MIPULSE_URL/api/vps/report" -H "Content-Type: application/json" -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" -d "$json" 2>&1) || true',
         '',
-        '  echo "[$(date)] CPU=$cpu_percent MEM=$mem_percent DSK=$disk_percent LOAD=$load1 UP=$uptime_sec $resp" >> "$LOG"',
+        '  echo "[$(date)] CPU=$cpu_percent MEM=$mem_percent LAT=$latency_ms $resp" >> "$LOG"',
         '  tail -100 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG" 2>/dev/null',
         '',
-        '  sleep 58',
+        '  sleep 55',
         'done',
     ].join('\n');
 
     const script = `#!/bin/bash
-# MiPulse Probe Universal Installer (Bash v1.4)
+# MiPulse Probe Universal Installer (Bash v1.5)
 echo "====================================="
-echo "  MiPulse Universal Bash Probe v1.4"
+echo "  MiPulse Universal Bash Probe v1.5"
 echo "====================================="
 
 if [[ $EUID -ne 0 ]]; then echo "Error: must be root"; exit 1; fi
+
+# Check for bc or awk
+if ! command -v bc &> /dev/null && ! command -v awk &> /dev/null; then
+  echo "Error: bc or awk is required."
+  exit 1
+fi
 
 mkdir -p /opt/mipulse && cd /opt/mipulse
 
