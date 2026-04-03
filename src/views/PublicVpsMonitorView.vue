@@ -500,8 +500,8 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                 :class="[
                   'px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border',
                   activeTag === tag 
-                    ? (darkMode ? 'bg-white/10 border-white/20 text-white ring-2 ring-white/10' : 'bg-slate-800 border-slate-700 text-white')
-                    : (darkMode ? 'bg-white/[0.03] border-white/5 text-gray-500 hover:bg-white/5' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50')
+                    ? (darkMode ? 'bg-white/10 border-white/30 text-white' : 'bg-slate-900 border-slate-900 text-white')
+                    : (darkMode ? 'bg-white/[0.03] border-white/5 text-gray-500 hover:text-gray-300' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50')
                 ]"
             >
                 {{ tag }}
@@ -510,7 +510,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
 
         <div v-if="nodes.length" class="mb-6 flex items-center justify-end gap-1.5">
             <router-link v-if="auth.isAuthenticated" to="/admin" :class="['flex items-center gap-1.5 px-3 py-1.5 backdrop-blur-2xl border rounded-lg transition-all hover:scale-105 active:scale-95 group text-[10px] font-black uppercase tracking-widest', darkMode ? 'bg-white/5 border-white/10 text-gray-400 hover:text-white' : 'bg-white border-gray-200 text-gray-500 hover:text-gray-900']">
-                <LayoutDashboard :size="13" :class="darkMode ? 'text-indigo-400' : 'text-indigo-600'" />
+                <LayoutDashboard :size="13" :class="darkMode ? 'text-gray-400 group-hover:text-white' : 'text-gray-500 group-hover:text-gray-900'" />
                 <span>控制台</span>
             </router-link>
             <div v-if="auth.isAuthenticated" class="w-px h-5 mx-1" :class="darkMode ? 'bg-white/10' : 'bg-gray-200'"></div>
