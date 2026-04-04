@@ -472,40 +472,43 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
             </div>
         </header>
 
-        <!-- TAG FILTERS row -->
-        <div v-if="nodes.length" class="mb-6 flex flex-wrap gap-2">
-            <button 
-                v-for="tag in tags" 
-                :key="tag" 
-                @click="activeTag = tag"
-                :class="[
-                  'px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border',
-                  activeTag === tag 
-                    ? (darkMode ? 'bg-white/10 border-white/30 text-white' : 'bg-slate-900 border-slate-900 text-white')
-                    : (darkMode ? 'bg-white/[0.03] border-white/5 text-gray-500 hover:text-gray-300' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50')
-                ]"
-            >
-                {{ tag }}
-            </button>
-        </div>
+        <div v-if="nodes.length" class="mb-10 flex flex-col sm:flex-row gap-6 justify-between items-start sm:items-center">
+            <!-- TAG FILTERS -->
+            <div class="flex flex-wrap gap-2">
+                <button 
+                    v-for="tag in tags" 
+                    :key="tag" 
+                    @click="activeTag = tag"
+                    :class="[
+                      'px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border',
+                      activeTag === tag 
+                        ? (darkMode ? 'bg-white/10 border-white/30 text-white' : 'bg-slate-900 border-slate-900 text-white')
+                        : (darkMode ? 'bg-white/[0.03] border-white/5 text-gray-500 hover:text-gray-300' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50')
+                    ]"
+                >
+                    {{ tag }}
+                </button>
+            </div>
 
-        <div v-if="nodes.length" class="mb-6 flex items-center justify-end gap-1.5">
-            <router-link v-if="auth.isAuthenticated" to="/admin" :class="['flex items-center gap-1.5 px-3 py-1.5 backdrop-blur-2xl border rounded-lg transition-all hover:scale-105 active:scale-95 group text-[10px] font-black uppercase tracking-widest', darkMode ? 'bg-white/5 border-white/10 text-gray-400 hover:text-white' : 'bg-white border-gray-200 text-gray-500 hover:text-gray-900']">
-                <LayoutDashboard :size="13" :class="darkMode ? 'text-gray-400 group-hover:text-white' : 'text-gray-500 group-hover:text-gray-900'" />
-                <span>控制台</span>
-            </router-link>
-            <div v-if="auth.isAuthenticated" class="w-px h-5 mx-1" :class="darkMode ? 'bg-white/10' : 'bg-gray-200'"></div>
-            <button @click="setViewMode('grid')" class="p-1.5 rounded-lg border transition-all" :class="viewMode === 'grid' ? (darkMode ? 'bg-white/10 ring-1 ring-white/20' : 'bg-gray-200 ring-1 ring-gray-300') : (darkMode ? 'bg-white/[0.03] border-white/10 text-gray-500' : 'bg-white border-gray-200 text-gray-400')">
-                <LayoutGrid :size="15" />
-            </button>
-            <button @click="setViewMode('list')" class="p-1.5 rounded-lg border transition-all" :class="viewMode === 'list' ? (darkMode ? 'bg-white/10 ring-1 ring-white/20' : 'bg-gray-200 ring-1 ring-gray-300') : (darkMode ? 'bg-white/[0.03] border-white/10 text-gray-500' : 'bg-white border-gray-200 text-gray-400')">
-                <List :size="15" />
-            </button>
-            <div class="w-px h-5 mx-1" :class="darkMode ? 'bg-white/10' : 'bg-gray-200'"></div>
-            <button @click="toggleDarkMode" class="p-1.5 rounded-lg border transition-all flex items-center justify-center" :class="darkMode ? 'bg-white/[0.03] border-white/10 hover:bg-white/10' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'">
-                <Sun v-if="darkMode" :size="15" class="text-amber-400" />
-                <Moon v-else :size="15" class="text-indigo-400" />
-            </button>
+            <!-- VIEW CONTROLS -->
+            <div class="flex items-center gap-1.5">
+                <router-link v-if="auth.isAuthenticated" to="/admin" :class="['flex items-center gap-1.5 px-3 py-1.5 backdrop-blur-2xl border rounded-lg transition-all hover:scale-105 active:scale-95 group text-[10px] font-black uppercase tracking-widest', darkMode ? 'bg-white/5 border-white/10 text-gray-400 hover:text-white' : 'bg-white border-gray-200 text-gray-500 hover:text-gray-900']">
+                    <LayoutDashboard :size="13" :class="darkMode ? 'text-gray-400 group-hover:text-white' : 'text-gray-500 group-hover:text-gray-900'" />
+                    <span>控制台</span>
+                </router-link>
+                <div v-if="auth.isAuthenticated" class="w-px h-5 mx-1" :class="darkMode ? 'bg-white/10' : 'bg-gray-200'"></div>
+                <button @click="setViewMode('grid')" class="p-1.5 rounded-lg border transition-all" :class="viewMode === 'grid' ? (darkMode ? 'bg-white/10 ring-1 ring-white/20' : 'bg-gray-200 ring-1 ring-gray-300') : (darkMode ? 'bg-white/[0.03] border-white/10 text-gray-500' : 'bg-white border-gray-200 text-gray-400')">
+                    <LayoutGrid :size="15" />
+                </button>
+                <button @click="setViewMode('list')" class="p-1.5 rounded-lg border transition-all" :class="viewMode === 'list' ? (darkMode ? 'bg-white/10 ring-1 ring-white/20' : 'bg-gray-200 ring-1 ring-gray-300') : (darkMode ? 'bg-white/[0.03] border-white/10 text-gray-500' : 'bg-white border-gray-200 text-gray-400')">
+                    <List :size="15" />
+                </button>
+                <div class="w-px h-5 mx-1" :class="darkMode ? 'bg-white/10' : 'bg-gray-200'"></div>
+                <button @click="toggleDarkMode" class="p-1.5 rounded-lg border transition-all flex items-center justify-center" :class="darkMode ? 'bg-white/[0.03] border-white/10 hover:bg-white/10' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'">
+                    <Sun v-if="darkMode" :size="15" class="text-amber-400" />
+                    <Moon v-else :size="15" class="text-indigo-400" />
+                </button>
+            </div>
         </div>
 
         <div v-if="isLoading" class="space-y-6 animate-in fade-in duration-700">

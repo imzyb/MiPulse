@@ -42,68 +42,54 @@ graph LR
 
 ---
 
-## 🚀 快速开始
+## 🚀 快速部署 (Quick Start)
 
-根据你的需求选择以下部署方式之一。如果你已经 Fork 了本仓库，**强烈建议使用方式 1** 以获得自动更新能力。
+根据你的需求选择以下部署方式之一。
 
-### 1. GitHub CI/CD 自动部署 (Fork 用户推荐 🌟)
+### 选项 1：GitHub 一键部署 (最快 🌟)
 
-这是最专业的方式。关联后，你对仓库的任何 `push` 都会自动触发 Cloudflare 的构建与发布。
+如果你想最快上线，可以使用 Cloudflare 官方提供的一键部署工具。它会自动克隆项目并引导你完成所有配置：
 
-1.  **登录 Cloudflare**: 进入 [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) 控制台。
-2.  **创建应用**: 点击 **Create application** -> **Pages** -> **Connect to Git**。
-3.  **关联仓库**: 选择你 Fork 后的 `MiPulse` 仓库。
-4.  **构建设置**:
-    - **Framework preset**: 保持 `None`。
-    - **Build command**: `npm run build`
-    - **Build output directory**: `dist`
-5.  **首次部署后配置资源**:
-    - 进入该项目的 **Settings -> Functions -> Bindings**。
-    - 在 **D1 database bindings** 中添加 `MIPULSE_DB`。
-    - 在 **KV namespace bindings** 中添加 `MIPULSE_KV`。
-    - 重新点击 **Deployments -> Retry deployment** 即可完成。
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/imzyb/MiPulse)
 
-### 2. 本地命令行部署 (全自动脚本)
-
-只需以下 6 步，即可自动在你的 Cloudflare 账户中完成所有资源创建与部署：
-
-```bash
-# 1. 克隆仓库 (Fork 用户请替换为自己的 URL)
-git clone https://github.com/imzyb/MiPulse.git
-
-# 2. 进入项目目录
-cd MiPulse
-
-# 3. 将 wrangler 更新到最新版
-npm install wrangler@latest --save-dev
-
-# 4. 安装项目依赖
-npm install
-
-# 5. 登录 Cloudflare (会弹出浏览器)
-npx wrangler login
-
-# 6. 执行全自动部署 (自动创建 D1/KV 并发布)
-npm run deploy:full
-```
+1. 点击上方按钮，授权 GitHub 并选择你的账户。
+2. 按照向导提示创建 **D1 数据库** 和 **KV 命名空间** (系统会自动为您识别 ID)。
+3. 部署完成后，在 Cloudflare 控制台即可看到你的监控站点。
 
 ---
 
-### 2. 手动分步部署 (进阶)
+### 选项 2：本地命令行部署 (全自动)
 
-如果你希望手动控制资源创建过程：
+MiPulse 提供了全自动化的资源开通与部署脚本，适合需要本地控制或二次开发的用户：
 
 ```bash
+# 1. 克隆仓库
+git clone https://github.com/imzyb/MiPulse.git
+cd MiPulse
+
+# 2. 安装项目依赖
 npm install
-npm run db:create
 
-# 将输出结果中的 database_id 复制到 wrangler.toml 中
-# 运行本地与远程初始化
-npm run db:init
-npm run db:init:remote
+# 3. 登录 Cloudflare (仅需一次)
+npx wrangler login
 
+# 4. 全自动部署 (自动创建 D1/KV 并初始化数据库)
 npm run deploy
 ```
+
+> [!TIP]
+> 运行 `npm run deploy` 后，脚本会自动检测你的账户。如果没有 `MIPULSE_DB` 或 `MIPULSE_KV`，它将自动为你创建、执行数据库初始化（schema.sql）并完成绑定。
+
+---
+
+### 选项 3：针对 Fork 用户的 CI/CD
+
+如果你 Fork 了本项目并希望通过 GitHub Actions 实现自动化运维：
+
+1. 在你的 GitHub 仓库 `Settings > Secrets and variables > Actions` 中添加一个 **New repository secret**：
+   - 名称：`CLOUDFLARE_API_TOKEN`
+   - 值：通过 [Cloudflare Dash](https://dash.cloudflare.com/profile/api-tokens) 创建的具有 `Edit Workers` 权限的 Token。
+2. 之后你对仓库的任何 `push` 都会自动触发 Cloudflare 的构建与发布。
 
 ---
 
