@@ -55,8 +55,11 @@ graph LR
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/imzyb/MiPulse)
 
 1. 点击上方按钮。
-2. 按照页面提示授权并创建 **D1 数据库** (MIPULSE_DB) 和 **KV 命名空间** (MIPULSE_KV)。
+2. 按照页面提示授权并创建 **D1 数据库** (mipulse_db) 和 **KV 命名空间** (mipulse_kv)。
 3. 部署完成后，系统将自动进入运行状态。
+
+> [!IMPORTANT]
+> **初始化数据库 (必须)**: 部署成功后，你需要手动运行一次建表脚本。请参考下方的 [数据库初始化](#-数据库初始化-重要) 章节。
 
 ---
 
@@ -76,11 +79,33 @@ graph LR
     - 在 **D1 database bindings** 中点击 **Add binding**：名称填 `MIPULSE_DB`，并选择你创建的 D1 数据库。
     - 在 **KV namespace bindings** 中点击 **Add binding**：名称填 `MIPULSE_KV`，并选择你创建的 KV 命名空间。
     - 重新点击 **Deployments -> Retry deployment**。
-6.  **初始化数据库**:
-    - 绑定成功后，你需要运行一次建表脚本。在你的本地终端运行：
-        ```bash
-        npm run db:init:remote
-        ```
+
+> [!IMPORTANT]
+> **初始化数据库 (必须)**: 绑定成功后，你需要手动运行一次建表脚本。请参考下方的 [数据库初始化](#-数据库初始化-重要) 章节。
+
+> [!TIP]
+> **自定义域名 (推荐)**: 为了确保全球访问的稳定性（尤其是解决部分地区对 `workers.dev` 的屏蔽问题）以及功能的完整性，建议在 **Settings -> Domains** 中绑定你的自定义域名。
+
+---
+
+## 🗄️ 数据库初始化 (重要)
+
+由于 Cloudflare 网页端部署目前不会自动执行 SQL 脚本，在首次部署成功后，你**必须**执行以下步骤来创建数据表，否则会报 `no such table` 错误。
+
+### 方法 A：通过 Cloudflare 网页控制台 (无需安装环境)
+
+1.  登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
+2.  进入 **Workers & Pages** -> **D1** -> 点击你的 **`mipulse_db`**。
+3.  在页面下方点击 **Console** (控制台) 选项卡。
+4.  打开项目根目录下的 [schema.sql](schema.sql) 文件，复制其全部内容。
+5.  粘贴到控制台的输入框中，点击 **Execute**。
+
+### 方法 B：通过本地命令行 (适合开发者)
+
+在你的本地项目终端中运行：
+```bash
+npx wrangler d1 execute mipulse_db --remote --file=./schema.sql
+```
 
 ---
 
