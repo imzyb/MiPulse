@@ -1,8 +1,8 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from './stores/auth';
-import { LayoutDashboard, LogOut, Activity, Bell, Monitor, Globe } from 'lucide-vue-next';
+import { LayoutDashboard, LogOut, Activity, Bell, Monitor, Globe, Menu, X } from 'lucide-vue-next';
 import ToastStack from './components/ui/ToastStack.vue';
 
 const router = useRouter();
@@ -13,6 +13,16 @@ const isLoginPage = computed(() => route.path === '/login');
 const isPublicPage = computed(() => route.path === '/');
 const showSidebar = computed(() => auth.isAuthenticated && !isLoginPage.value && !isPublicPage.value);
 
+const isMobileMenuOpen = ref(false);
+const toggleMobileMenu = () => {
+  isMobileMenuOpen.value = !isMobileMenuOpen.value;
+};
+
+// Close mobile menu on navigation
+watch(() => route.path, () => {
+  isMobileMenuOpen.value = false;
+});
+
 const handleLogout = () => {
   auth.logout();
   router.push('/login');
@@ -21,6 +31,14 @@ const handleLogout = () => {
 const navItems = [
   { name: '仪表盘', icon: Activity, path: '/admin' },
   { name: '公开展示页', icon: Globe, path: '/' }
+];
+
+const adminNavItems = [
+  { name: '集群监测', path: '/admin' },
+  { name: '主题设置', path: '/admin/themes' },
+  { name: '网络监测', path: '/admin/network-targets' },
+  { name: '上报参数', path: '/admin/report-params' },
+  { name: '系统设置', path: '/admin/settings' }
 ];
 </script>
 
@@ -35,12 +53,18 @@ const navItems = [
             <div class="w-10 h-10 rounded-xl bg-primary-600 text-white flex items-center justify-center shadow-lg shadow-primary-500/30 group-hover:scale-110 transition-transform">
               <Activity :size="24" />
             </div>
-            <span class="text-2xl font-black text-gray-900 dark:text-white tracking-widest">MiPulse</span>
+            <span class="text-2xl font-black text-gray-900 dark:text-white tracking-widest leading-none">MiPulse</span>
           </div>
+
+          <!-- Mobile Toggle (Wait, let's put it on the right? No, standard is left or next to logo) -->
+          <button @click="toggleMobileMenu" class="md:hidden p-2 rounded-xl text-gray-400 hover:text-gray-900 dark:hover:text-white transition-all ml-[-8px]">
+             <Menu v-if="!isMobileMenuOpen" :size="24" />
+             <X v-else :size="24" />
+          </button>
 
             <nav class="hidden md:flex items-center gap-6">
               <router-link 
-                v-for="item in [{ name: '集群监测', path: '/admin' }, { name: '主题设置', path: '/admin/themes' }, { name: '网络监测', path: '/admin/network-targets' }, { name: '上报参数', path: '/admin/report-params' }, { name: '系统设置', path: '/admin/settings' }]" 
+                v-for="item in adminNavItems" 
                 :key="item.path"
                 :to="item.path"
                 class="px-2 py-1 text-sm font-black uppercase tracking-[0.2em] transition-all relative group"
@@ -73,6 +97,41 @@ const navItems = [
           </button>
         </div>
       </div>
+
+      <!-- Mobile Dropdown Menu -->
+      <transition 
+        enter-active-class="transition duration-300 ease-out" 
+        enter-from-class="transform -translate-y-4 opacity-0" 
+        enter-to-class="transform translate-y-0 opacity-100" 
+        leave-active-class="transition duration-200 ease-in" 
+        leave-from-class="transform translate-y-0 opacity-100" 
+        leave-to-class="transform -translate-y-4 opacity-0"
+      >
+        <div v-if="isMobileMenuOpen" class="md:hidden absolute top-20 left-0 right-0 bg-white/95 dark:bg-gray-950/95 backdrop-blur-3xl border-b border-black/5 dark:border-white/5 py-6 px-6 shadow-2xl z-[55]">
+          <nav class="flex flex-col gap-4">
+            <router-link 
+              v-for="item in adminNavItems" 
+              :key="item.path"
+              :to="item.path"
+              class="flex items-center justify-between p-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all"
+              :class="route.path === item.path ? 'bg-primary-600/10 text-primary-600 border border-primary-500/20' : 'text-gray-500 hover:bg-black/5 dark:hover:bg-white/5'"
+              @click="isMobileMenuOpen = false"
+            >
+              <span>{{ item.name }}</span>
+              <div v-if="route.path === item.path" class="w-1.5 h-1.5 rounded-full bg-primary-600"></div>
+            </router-link>
+          </nav>
+
+          <!-- Divider -->
+          <div class="h-px bg-black/5 dark:bg-white/5 my-6"></div>
+
+          <!-- Bottom Actions inside Mobile Menu (Optional but handy) -->
+          <button @click="handleLogout" class="w-full flex items-center justify-center gap-3 p-4 rounded-2xl text-xs font-black uppercase tracking-widest text-rose-500 bg-rose-500/5 transition-all">
+            <LogOut :size="16" />
+            <span>Logout Account</span>
+          </button>
+        </div>
+      </transition>
     </header>
 
     <!-- Main Content -->

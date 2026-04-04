@@ -227,25 +227,6 @@ const getMetricValue = (node, metric) => {
     return 0;
 };
 
-const groupList = computed(() => {
-    if (!nodes.value || nodes.value.length === 0) return [];
-    const groups = new Map();
-    filteredNodes.value.forEach((node) => {
-        const key = node.groupTag || 'Default';
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(node);
-    });
-    return Array.from(groups.entries()).map(([name, items], index) => ({
-        name,
-        nodes: items,
-        index
-    }));
-});
-
-const groupAccent = (index) => {
-    const colors = ['#6366f1', '#a855f7', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#06b6d4'];
-    return colors[index % colors.length];
-};
 
 const getLatencyPoints = (nodeId) => {
     const nodeData = nodeHistoryMap.value[nodeId];
@@ -527,14 +508,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
             </button>
         </div>
 
-        <div v-if="isLoading" class="space-y-12 animate-in fade-in duration-700">
-            <div v-for="i in 2" :key="i" class="space-y-6">
-                <!-- Group Title Skeleton -->
-                <div class="flex items-center gap-4">
-                    <div class="h-px flex-1 bg-black/5 dark:bg-white/5"></div>
-                    <div class="w-32 h-6 skeleton"></div>
-                    <div class="h-px flex-1 bg-black/5 dark:bg-white/5"></div>
-                </div>
+        <div v-if="isLoading" class="space-y-6 animate-in fade-in duration-700">
                 <!-- Card/List Skeleton -->
                 <div :class="viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8' : 'flex flex-col gap-4'">
                     <div v-for="j in 3" :key="j" :class="[
@@ -554,7 +528,6 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                         </div>
                     </div>
                 </div>
-            </div>
         </div>
 
         <div v-else-if="error" class="flex flex-col items-center justify-center py-24 text-center space-y-6">
@@ -573,19 +546,9 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
             </button>
         </div>
 
-        <div v-else-if="nodes.length" class="space-y-12">
-            <section v-for="group in groupList" :key="group.name" class="space-y-6">
-                <div class="flex items-center gap-4">
-                    <div class="h-px flex-1" :style="{ backgroundColor: dividerColor }"></div>
-                    <div class="px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.3em]"
-                        :style="{ color: groupAccent(group.index), backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', border: `1px solid ${dividerColor}` }">
-                        {{ group.name }}
-                    </div>
-                    <div class="h-px flex-1" :style="{ backgroundColor: dividerColor }"></div>
-                </div>
-
-                <div :class="viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 items-start' : 'flex flex-col gap-4'">
-                    <div v-for="node in group.nodes" :key="node.id" :class="[
+        <div v-else-if="nodes.length" class="space-y-6">
+            <div :class="viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 items-start' : 'flex flex-col gap-4'">
+                <div v-for="node in filteredNodes" :key="node.id" :class="[
                       'group relative transition-all duration-500 overflow-hidden border cursor-pointer',
                       viewMode === 'grid' ? 'rounded-[2rem] p-8 flex flex-col gap-6 items-start' : 'rounded-2xl p-4 flex flex-col',
                       cardBg, cardBorder,
@@ -856,8 +819,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                           </div>
                         </transition>
                     </div>
-                </div>
-            </section>
+            </div>
 
             <div v-if="filteredNodes.length === 0" class="text-center py-16">
                 <Search :size="48" class="mx-auto mb-4 text-gray-600" />
