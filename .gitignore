@@ -27,4 +27,5 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-wrangler.toml
+# wrangler.local.toml
+wrangler.local.toml

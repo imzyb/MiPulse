@@ -41,10 +41,11 @@ const loadData = async () => {
   isLoading.value = true;
   try {
     const result = await fetchSettings();
-    if (result.success && result.settings) {
+    if (result.success) {
+      const settingsData = result.data || result.settings || {};
       // Map theme_json from backend to vpsMonitor for this UI's usage
       config.value = {
-        vpsMonitor: result.settings.theme_json || {}
+        vpsMonitor: settingsData.theme_json || {}
       };
     }
   } catch (error) {
@@ -62,8 +63,9 @@ const handleSave = async () => {
     };
     const result = await saveSettings(payload);
     if (result.success) {
-      if (result.settings?.theme_json) {
-        config.value.vpsMonitor = result.settings.theme_json;
+      const settingsData = result.data || result.settings || {};
+      if (settingsData.theme_json) {
+        config.value.vpsMonitor = settingsData.theme_json;
       }
       showToast('已保存', 'success');
     } else {

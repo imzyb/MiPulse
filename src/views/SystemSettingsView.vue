@@ -12,7 +12,7 @@ const isLoading = ref(true);
 const isSaving = ref(false);
 const isSavingProfile = ref(false);
 const isTestingNotify = ref(false);
-const config = ref({ vpsMonitor: {} });
+const config = ref({ vpsMonitor: {}, notifications: { enabled: false, telegram: {}, webhook: {}, pushplus: {} } });
 const profile = ref({
   username: 'admin',
   currentPassword: '',
@@ -27,15 +27,31 @@ const loadData = async () => {
     const result = await fetchSettings();
     const profileRes = await fetchProfile();
     if (result.success) {
+      const settingsData = result.data || result.settings || {};
       config.value = {
-        ...result,
         vpsMonitor: {
-          ...result.vpsMonitor
+          ...(settingsData.vps_monitor_json || {})
+        },
+        notifications: {
+          enabled: settingsData.notification_json?.enabled || false,
+          telegram: {
+            enabled: settingsData.notification_json?.telegram?.enabled || false,
+            botToken: settingsData.notification_json?.telegram?.botToken || '',
+            chatId: settingsData.notification_json?.telegram?.chatId || ''
+          },
+          webhook: {
+            enabled: settingsData.notification_json?.webhook?.enabled || false,
+            url: settingsData.notification_json?.webhook?.url || ''
+          },
+          pushplus: {
+            enabled: settingsData.notification_json?.pushplus?.enabled || false,
+            token: settingsData.notification_json?.pushplus?.token || ''
+          }
         }
       };
     }
-    if (profileRes?.success && profileRes?.data?.username) {
-      profile.value.username = profileRes.data.username;
+    if (profileRes?.success && (profileRes?.user?.username || profileRes?.data?.username)) {
+      profile.value.username = profileRes.user?.username || profileRes.data?.username;
     }
   } catch (error) {
     showToast('加载失败', 'error');
@@ -47,12 +63,31 @@ const loadData = async () => {
 const handleSave = async () => {
   isSaving.value = true;
   try {
-    const result = await saveSettings(config.value);
-    if (result.success && result.data) {
+    const result = await saveSettings({
+      vps_monitor_json: config.value.vpsMonitor,
+      notification_json: config.value.notifications
+    });
+    if (result.success) {
+      const settingsData = result.data || result.settings || {};
       config.value = {
-        ...result.data,
         vpsMonitor: {
-          ...result.data.vpsMonitor
+          ...(settingsData.vps_monitor_json || settingsData.vpsMonitor || {})
+        },
+        notifications: {
+          enabled: settingsData.notification_json?.enabled || false,
+          telegram: {
+            enabled: settingsData.notification_json?.telegram?.enabled || false,
+            botToken: settingsData.notification_json?.telegram?.botToken || '',
+            chatId: settingsData.notification_json?.telegram?.chatId || ''
+          },
+          webhook: {
+            enabled: settingsData.notification_json?.webhook?.enabled || false,
+            url: settingsData.notification_json?.webhook?.url || ''
+          },
+          pushplus: {
+            enabled: settingsData.notification_json?.pushplus?.enabled || false,
+            token: settingsData.notification_json?.pushplus?.token || ''
+          }
         }
       };
       showToast('已保存', 'success');
@@ -117,7 +152,8 @@ const handleTestNotify = async () => {
     const result = await testNotifications();
     if (result?.success) {
       const successCount = Number(result?.data?.successCount || 0);
-      showToast(`测试已发送（成功通道 ${successCount}）`, 'success');
+      const failureCount = Number(result?.data?.failureCount || 0);
+      showToast(`测试已发送（成功 ${successCount}，失败 ${failureCount}）`, failureCount ? 'warning' : 'success');
     } else {
       showToast(result?.error || '测试失败', 'error');
     }
@@ -147,7 +183,7 @@ onMounted(loadData);
             </div>
             <div>
               <h2 class="admin-title">Notification Settings</h2>
-              <p class="admin-subtitle">配置告警通知推送渠道（Telegram / Webhook / App Push）。</p>
+              <p class="admin-subtitle">配置告警通知推送渠道（Telegram / Webhook / PushPlus）。</p>
             </div>
           </div>
           <button @click="handleRefresh" class="admin-secondary-btn px-10 py-4">
@@ -158,27 +194,27 @@ onMounted(loadData);
 
         <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div class="admin-panel xl:col-span-2 p-6 space-y-6">
-            <Switch v-model="config.vpsMonitor.notificationEnabled" label="启用通知推送" sublabel="总开关，关闭后不触发外部推送。" />
-            <Switch v-model="config.vpsMonitor.notifyTelegram" label="启用 Telegram 推送" sublabel="使用 Bot Token + Chat ID 发送告警。" />
-            <Switch v-model="config.vpsMonitor.notifyWebhook" label="启用 Webhook 推送" sublabel="将告警 POST 到指定 URL。" />
-            <Switch v-model="config.vpsMonitor.notifyAppPush" label="启用 APP Push" sublabel="通过第三方 App Key 发送推送。" />
+            <Switch v-model="config.notifications.enabled" label="启用通知推送" sublabel="总开关，关闭后不触发外部推送。" />
+            <Switch v-model="config.notifications.telegram.enabled" label="启用 Telegram 推送" sublabel="使用 Bot Token + Chat ID 发送告警。" />
+            <Switch v-model="config.notifications.webhook.enabled" label="启用 Webhook 推送" sublabel="将告警 POST 到指定 URL。" />
+            <Switch v-model="config.notifications.pushplus.enabled" label="启用 PushPlus 推送" sublabel="通过 PushPlus Token 发送测试通知。" />
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-black/5 dark:border-white/5">
               <div class="space-y-1">
                 <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Telegram Bot Token</label>
-                <input v-model="config.vpsMonitor.telegramBotToken" type="text" class="admin-input" />
+                <input v-model="config.notifications.telegram.botToken" type="text" class="admin-input" />
               </div>
               <div class="space-y-1">
                 <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Telegram Chat ID</label>
-                <input v-model="config.vpsMonitor.telegramChatId" type="text" class="admin-input" />
+                <input v-model="config.notifications.telegram.chatId" type="text" class="admin-input" />
               </div>
               <div class="space-y-1">
                 <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Webhook URL</label>
-                <input v-model="config.vpsMonitor.webhookUrl" type="text" class="admin-input" />
+                <input v-model="config.notifications.webhook.url" type="text" class="admin-input" />
               </div>
               <div class="space-y-1">
-                <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">APP Push Key</label>
-                <input v-model="config.vpsMonitor.appPushKey" type="text" class="admin-input" />
+                <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">PushPlus Token</label>
+                <input v-model="config.notifications.pushplus.token" type="text" class="admin-input" />
               </div>
             </div>
 

@@ -236,6 +236,14 @@ const supportsCheck = computed(() => props.allowCheck);
             <div class="text-xs font-mono text-gray-600 dark:text-gray-400 break-all opacity-80">
               <span v-if="item.scheme" class="text-gray-500/70">{{ item.scheme }}://</span>{{ item.target }}<span v-if="item.port" class="text-gray-500">:{{ item.port }}</span><span v-if="item.path" class="text-gray-500 italic">{{ item.path }}</span>
             </div>
+            <div v-if="item.latestSample" class="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-wider">
+              <span class="px-2 py-1 rounded-md"
+                :class="item.latestSample.status === 'reachable' ? 'bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/20' : item.latestSample.status === 'queued' ? 'bg-amber-500/10 text-amber-500 ring-1 ring-amber-500/20' : 'bg-rose-500/10 text-rose-500 ring-1 ring-rose-500/20'">
+                {{ item.latestSample.status === 'reachable' ? '可达' : item.latestSample.status === 'queued' ? '排队中' : '不可达' }}
+              </span>
+              <span class="text-gray-500 dark:text-gray-400" v-if="item.latestSample.latencyMs">{{ item.latestSample.latencyMs }}ms</span>
+              <span class="text-gray-400 dark:text-gray-500" v-if="item.latestSample.checkedAt">{{ new Date(item.latestSample.checkedAt).toLocaleString() }}</span>
+            </div>
           </div>
           <div class="flex items-center">
             <div :class="item.enabled ? 'bg-emerald-500' : 'bg-gray-400'" class="h-2 w-2 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.6)] animate-pulse" v-if="item.enabled"></div>

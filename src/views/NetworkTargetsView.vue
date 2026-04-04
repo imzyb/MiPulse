@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { RefreshCw, Radar, Save } from 'lucide-vue-next';
 import { useToastStore } from '../stores/toast.js';
-import { fetchSettings, fetchVpsNetworkTargets, saveSettings } from '../lib/api.js';
+import { fetchSettings, fetchVpsNetworkTargets, requestVpsNetworkCheck, saveSettings } from '../lib/api.js';
 import Switch from '../components/ui/Switch.vue';
 import VpsNetworkTargets from '../components/vps/VpsNetworkTargets.vue';
 
@@ -12,6 +12,7 @@ const isLoading = ref(true);
 const isSaving = ref(false);
 const targets = ref([]);
 const limit = ref(10);
+const checkingTargets = ref({});
 const config = ref({ vpsMonitor: { networkMonitorEnabled: true } });
 
 const loadData = async ({ notify = false } = {}) => {
@@ -23,11 +24,12 @@ const loadData = async ({ notify = false } = {}) => {
     ]);
 
     if (targetsRes?.success) {
-      targets.value = targetsRes.targets || [];
+      targets.value = targetsRes.data || targetsRes.targets || [];
     }
 
-    if (settingsRes?.success && settingsRes.settings) {
-      const net = settingsRes.settings.network_monitor_json || {};
+    if (settingsRes?.success) {
+      const settingsData = settingsRes.data || settingsRes.settings || {};
+      const net = settingsData.network_monitor_json || {};
       config.value = {
         vpsMonitor: net
       };
@@ -55,9 +57,10 @@ const handleSave = async () => {
     };
     const result = await saveSettings(payload);
     if (result.success) {
-      if (result.settings?.network_monitor_json) {
-        config.value.vpsMonitor = result.settings.network_monitor_json;
-        limit.value = result.settings.network_monitor_json.targetsLimit || limit.value;
+      const settingsData = result.data || result.settings || {};
+      if (settingsData.network_monitor_json) {
+        config.value.vpsMonitor = settingsData.network_monitor_json;
+        limit.value = settingsData.network_monitor_json.targetsLimit || limit.value;
       }
       showToast('已保存', 'success');
     } else {
@@ -67,6 +70,32 @@ const handleSave = async () => {
     showToast('保存失败', 'error');
   } finally {
     isSaving.value = false;
+  }
+};
+
+const handleCheck = async (target) => {
+  checkingTargets.value = {
+    ...checkingTargets.value,
+    [target.id]: true
+  };
+
+  try {
+    const result = await requestVpsNetworkCheck('global', target.id);
+    if (result?.success) {
+      const status = result.data?.status === 'reachable' ? '可达' : '不可达';
+      const latency = result.data?.latencyMs ? `，延迟 ${result.data.latencyMs}ms` : '';
+      showToast(`检测完成：${status}${latency}`, result.data?.status === 'reachable' ? 'success' : 'warning');
+      await loadData();
+    } else {
+      showToast(result?.error || '检测失败', 'error');
+    }
+  } catch (error) {
+    showToast(error?.response?.data?.error || '检测失败', 'error');
+  } finally {
+    checkingTargets.value = {
+      ...checkingTargets.value,
+      [target.id]: false
+    };
   }
 };
 
@@ -133,9 +162,11 @@ onMounted(loadData);
         nodeId="global"
         :targets="targets"
         :limit="limit"
-        :allowCheck="false"
+        :checkingTargets="checkingTargets"
+        :allowCheck="true"
         :hideHeader="true"
         @refresh="loadData"
+        @check="handleCheck"
       />
 
       <div class="flex justify-end pt-6">

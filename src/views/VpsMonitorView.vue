@@ -104,7 +104,7 @@ const loadData = async ({ notify = false, silent = false } = {}) => {
     }
     
     if (settingsRes && settingsRes.success) {
-      config.value = settingsRes;
+      config.value = settingsRes.data || settingsRes.settings || { vpsMonitor: {} };
     }
     
     if (notify) {

@@ -1,14 +1,13 @@
 import { jwt } from 'hono/jwt';
 
-let _handler = null;
+function getJwtSecret(env) {
+    return env.JWT_SECRET || 'mipulse-secret-key';
+}
 
 export const authMiddleware = async (c, next) => {
-    const secret = c.env.JWT_SECRET || 'mipulse-secret-key';
-    if (!_handler) {
-        _handler = jwt({
-            secret: secret,
-            alg: 'HS256'
-        });
-    }
-    return _handler(c, next);
+    const handler = jwt({
+        secret: getJwtSecret(c.env),
+        alg: 'HS256'
+    });
+    return handler(c, next);
 };

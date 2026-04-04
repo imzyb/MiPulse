@@ -50,8 +50,8 @@ const loadData = async (silent = false) => {
   if (!silent) isRefreshing.value = true;
   try {
     const [nodesRes, alertsRes] = await Promise.all([fetchVpsNodes(), fetchVpsAlerts()]);
-    nodes.value = nodesRes.data.data || [];
-    alerts.value = alertsRes.data.data || [];
+    nodes.value = nodesRes.data || nodesRes.nodes || [];
+    alerts.value = alertsRes.data || alertsRes.alerts || [];
   } catch (err) {
     console.error('Failed to load data:', err);
   } finally {
@@ -85,6 +85,11 @@ const handleDelete = async () => {
     showDeleteModal.value = false;
     loadData();
   }
+};
+
+const handleClearAlerts = async () => {
+  await clearVpsAlerts();
+  loadData();
 };
 
 const openDelete = (node) => {
@@ -241,7 +246,7 @@ onMounted(loadData);
             </div>
           </div>
 
-          <button v-if="alerts.length" @click="clearVpsAlerts" class="w-full mt-6 py-3 border border-gray-100 dark:border-gray-800 rounded-2xl text-xs font-bold text-gray-400 hover:text-rose-500 transition-all uppercase tracking-widest">
+          <button v-if="alerts.length" @click="handleClearAlerts" class="w-full mt-6 py-3 border border-gray-100 dark:border-gray-800 rounded-2xl text-xs font-bold text-gray-400 hover:text-rose-500 transition-all uppercase tracking-widest">
             Clear All Alerts
           </button>
         </div>

@@ -13,7 +13,7 @@
     "db:create": "npx wrangler d1 create MIPULSE_DB",
     "db:init": "npx wrangler d1 execute MIPULSE_DB --file=./schema.sql",
     "db:init:remote": "npx wrangler d1 execute MIPULSE_DB --file=./schema.sql --remote",
-    "test": "node test/summarizeNode.test.js",
+    "test": "node --test test/**/*.test.js",
     "preview": "vite preview",
     "wrangler": "npx wrangler"
   },

@@ -14,10 +14,11 @@ const loadData = async () => {
   isLoading.value = true;
   try {
     const result = await fetchSettings();
-    if (result.success && result.settings) {
+    if (result.success) {
+      const settingsData = result.data || result.settings || {};
       // Map vps_monitor_json from backend to vpsMonitor for UI
       config.value = {
-        vpsMonitor: result.settings.vps_monitor_json || {}
+        vpsMonitor: settingsData.vps_monitor_json || {}
       };
     }
   } catch (error) {
@@ -38,8 +39,9 @@ const handleSave = async () => {
     if (result.success) {
       showToast('已保存', 'success');
       // If backend returns updated settings, sync them
-      if (result.settings?.vps_monitor_json) {
-        config.value.vpsMonitor = result.settings.vps_monitor_json;
+      const settingsData = result.data || result.settings || {};
+      if (settingsData.vps_monitor_json) {
+        config.value.vpsMonitor = settingsData.vps_monitor_json;
       }
     } else {
       showToast(result?.error || '保存失败', 'error');

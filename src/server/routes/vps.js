@@ -6,7 +6,7 @@ const vps = new Hono();
 function nowIso() { return new Date().toISOString(); }
 function isoFromMs(ms) { return new Date(ms).toISOString(); }
 
-function normalizeReportTimestamp(rawValue, fallbackIso) {
+export function normalizeReportTimestamp(rawValue, fallbackIso) {
     if (rawValue === null || rawValue === undefined) return fallbackIso;
     if (typeof rawValue === 'number') {
         const ts = rawValue > 1e12 ? rawValue : rawValue * 1000;
@@ -40,6 +40,193 @@ function generateUnambiguousSecret(len = 12) {
     return res;
 }
 
+export function safeJsonParse(value, fallback) {
+    if (!value) return fallback;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return fallback;
+    }
+}
+
+async function getNotificationConfig(db) {
+    const rows = await db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?)')
+        .bind('vps_monitor_json', 'notification_json')
+        .all();
+    const settings = {};
+    for (const row of rows.results || []) {
+        settings[row.key] = safeJsonParse(row.value, {});
+    }
+    const notification = settings.notification_json || {};
+    const legacy = settings.vps_monitor_json || {};
+    return {
+        notificationEnabled: notification.enabled ?? legacy.notificationEnabled ?? false,
+        telegram: {
+            enabled: notification.telegram?.enabled ?? legacy.notifyTelegram ?? false,
+            botToken: notification.telegram?.botToken ?? legacy.telegramBotToken ?? '',
+            chatId: notification.telegram?.chatId ?? legacy.telegramChatId ?? ''
+        },
+        webhook: {
+            enabled: notification.webhook?.enabled ?? legacy.notifyWebhook ?? false,
+            url: notification.webhook?.url ?? legacy.webhookUrl ?? ''
+        },
+        pushplus: {
+            enabled: notification.pushplus?.enabled ?? legacy.notifyAppPush ?? false,
+            token: notification.pushplus?.token ?? legacy.appPushKey ?? ''
+        }
+    };
+}
+
+function buildTargetUrl(target) {
+    const scheme = target.scheme || (target.type === 'http' ? 'https' : 'https');
+    const portPart = target.port ? `:${target.port}` : '';
+    const path = target.path || '/';
+    return `${scheme}://${target.target}${portPart}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+export async function executeTargetCheck(target, fetchImpl = fetch) {
+    const startedAt = Date.now();
+    const timeoutMs = 5000;
+    let probeUrl = '';
+
+    if (target.type === 'http') {
+        probeUrl = buildTargetUrl(target);
+    } else if (target.type === 'tcp') {
+        const port = target.port ? `:${target.port}` : '';
+        probeUrl = `https://${target.target}${port}/`;
+    } else {
+        probeUrl = `https://${target.target}/`;
+    }
+
+    try {
+        const response = await fetchImpl(probeUrl, {
+            method: 'HEAD',
+            redirect: 'manual',
+            signal: AbortSignal.timeout(timeoutMs)
+        });
+        return {
+            ok: true,
+            status: response.status,
+            latencyMs: Date.now() - startedAt,
+            checkedAt: nowIso(),
+            mode: target.type === 'http' ? 'http' : 'tcp-like',
+            url: probeUrl
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            status: null,
+            latencyMs: Date.now() - startedAt,
+            checkedAt: nowIso(),
+            mode: target.type === 'http' ? 'http' : 'tcp-like',
+            url: probeUrl,
+            error: error?.message || 'Probe failed'
+        };
+    }
+}
+
+async function sendTelegramNotification(config, text, fetchImpl = fetch) {
+    const response = await fetchImpl(`https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            chat_id: config.telegram.chatId,
+            text
+        })
+    });
+    if (!response.ok) {
+        throw new Error(`Telegram request failed with ${response.status}`);
+    }
+    return { channel: 'telegram' };
+}
+
+async function sendWebhookNotification(config, text, fetchImpl = fetch) {
+    const response = await fetchImpl(config.webhook.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            source: 'MiPulse',
+            type: 'test',
+            message: text,
+            timestamp: nowIso()
+        })
+    });
+    if (!response.ok) {
+        throw new Error(`Webhook request failed with ${response.status}`);
+    }
+    return { channel: 'webhook' };
+}
+
+async function sendAppPushNotification(config, text, fetchImpl = fetch) {
+    const response = await fetchImpl('https://www.pushplus.plus/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            token: config.pushplus.token,
+            title: 'MiPulse Test Notification',
+            content: text,
+            template: 'txt'
+        })
+    });
+    if (!response.ok) {
+        throw new Error(`App push request failed with ${response.status}`);
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (payload && payload.code && payload.code !== 200) {
+        throw new Error(payload.msg || 'App push rejected the request');
+    }
+    return { channel: 'appPush' };
+}
+
+export async function sendTestNotifications(config, fetchImpl = fetch) {
+    const text = `MiPulse test notification\nTime: ${nowIso()}`;
+    const jobs = [];
+
+    if (config.notificationEnabled && config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
+        jobs.push(sendTelegramNotification(config, text, fetchImpl));
+    }
+    if (config.notificationEnabled && config.webhook?.enabled && config.webhook?.url) {
+        jobs.push(sendWebhookNotification(config, text, fetchImpl));
+    }
+    if (config.notificationEnabled && config.pushplus?.enabled && config.pushplus?.token) {
+        jobs.push(sendAppPushNotification(config, text, fetchImpl));
+    }
+
+    const results = await Promise.allSettled(jobs);
+    const channels = results.map((result) => result.status === 'fulfilled'
+        ? { ok: true, channel: result.value.channel }
+        : { ok: false, error: result.reason?.message || 'Notification failed' });
+    return {
+        successCount: channels.filter((item) => item.ok).length,
+        failureCount: channels.filter((item) => !item.ok).length,
+        channels
+    };
+}
+
+async function getProbeNode(db, rawId, rawSecret) {
+    if (!rawId || !rawSecret) return null;
+    const node = await db.prepare('SELECT id, secret, network_monitor_enabled FROM vps_nodes WHERE LOWER(id) = LOWER(?)').bind(rawId).first();
+    if (!node || node.secret !== rawSecret) return null;
+    return node;
+}
+
+async function getProbeTargets(db, node) {
+    let query = 'SELECT id, node_id AS nodeId, type, target, name, scheme, port, path, force_check_at AS forceCheckAt FROM vps_network_targets WHERE enabled = 1 AND (node_id = ?';
+    if (node.network_monitor_enabled) query += " OR node_id = 'global'";
+    query += ')';
+    const { results } = await db.prepare(query).bind(node.id).all();
+    return results || [];
+}
+
+function normalizeTargetListItem(target, latestSampleMap) {
+    return {
+        ...target,
+        enabled: !!target.enabled,
+        latestSample: latestSampleMap[target.id] || null
+    };
+}
+
 // --- Routes ---
 
 vps.get('/public', async (c) => {
@@ -51,11 +238,11 @@ vps.get('/public', async (c) => {
         const { results: nodes } = await db.prepare(`SELECT id, name, region, country_code AS countryCode, status, last_seen_at AS lastSeenAt, tag, group_tag AS groupTag, last_report_json AS lastReport, total_rx AS totalRx, total_tx AS totalTx FROM vps_nodes WHERE enabled = 1 ORDER BY name ASC`).all();
         const { results: latencyRows } = await db.prepare(`SELECT node_id, CAST(json_extract(data, '$.latencyMs') AS FLOAT) as latencyMs, reported_at AS reportedAt FROM (SELECT node_id, data, reported_at, ROW_NUMBER() OVER(PARTITION BY node_id ORDER BY reported_at DESC) as rn FROM vps_reports WHERE reported_at > datetime('now', '-24 hours')) WHERE rn <= 20`).all();
         const latencyMap = {}; latencyRows.forEach(r => { if (!latencyMap[r.node_id]) latencyMap[r.node_id] = []; latencyMap[r.node_id].push(r.latencyMs); });
-        const data = nodes.map(n => ({ ...n, latency: latencyMap[n.id] || [], latest: n.lastReport ? JSON.parse(n.lastReport) : null }));
+        const data = nodes.map(n => ({ ...n, latency: latencyMap[n.id] || [], latest: safeJsonParse(n.lastReport, null) }));
         
         // Fetch global settings for theme and layout
         const { results: settingsRows } = await db.prepare('SELECT key, value FROM settings WHERE key IN ("theme_json", "layout_json")').all();
-        const settings = {}; settingsRows.forEach(r => settings[r.key] = JSON.parse(r.value));
+        const settings = {}; settingsRows.forEach(r => settings[r.key] = safeJsonParse(r.value, {}));
         
         const result = { 
             success: true, 
@@ -78,9 +265,10 @@ vps.post('/report', async (c) => {
     if (!nodeId) return c.json({ error: 'Missing node id' }, 400);
     const node = await db.prepare('SELECT id, secret, last_seen_at AS lastSeenAt, last_report_json AS lastReport FROM vps_nodes WHERE LOWER(id) = LOWER(?)').bind(nodeId).first();
     if (!node) return c.json({ error: 'Node not found' }, 404);
-    if (node.secret && secret && node.secret !== secret) return c.json({ error: 'Invalid secret' }, 401);
+    if (node.secret && !secret) return c.json({ error: 'Missing secret' }, 401);
+    if (node.secret !== secret) return c.json({ error: 'Invalid secret' }, 401);
     const reportedAt = normalizeReportTimestamp(report.ts || report.timestamp, nowIso());
-    const lastRep = node.lastReport ? JSON.parse(node.lastReport) : {};
+    const lastRep = safeJsonParse(node.lastReport, {});
     const rxDelta = Math.max(0, Number(report.traffic?.rx || 0) - Number(lastRep.traffic?.rx || 0));
     const txDelta = Math.max(0, Number(report.traffic?.tx || 0) - Number(lastRep.traffic?.tx || 0));
     const timeDelta = (new Date(reportedAt).getTime() - (node.lastSeenAt ? new Date(node.lastSeenAt).getTime() : 0)) / 1000;
@@ -112,7 +300,7 @@ vps.get('/nodes', async (c) => {
     const db = c.env.MIPULSE_DB;
     try {
         const { results } = await db.prepare('SELECT id, name, tag, group_tag AS groupTag, region, country_code AS countryCode, secret, status, enabled, network_monitor_enabled AS networkMonitorEnabled, last_report_json AS lastReport FROM vps_nodes ORDER BY name ASC').all();
-        return c.json({ success: true, nodes: results.map(n => ({ ...n, enabled: !!n.enabled, networkMonitorEnabled: !!n.networkMonitorEnabled, latest: n.lastReport ? JSON.parse(n.lastReport) : null })) });
+        return c.json({ success: true, data: results.map(n => ({ ...n, enabled: !!n.enabled, networkMonitorEnabled: !!n.networkMonitorEnabled, latest: safeJsonParse(n.lastReport, null) })), nodes: results.map(n => ({ ...n, enabled: !!n.enabled, networkMonitorEnabled: !!n.networkMonitorEnabled, latest: safeJsonParse(n.lastReport, null) })) });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
@@ -131,7 +319,8 @@ vps.get('/nodes/:id', async (c) => {
     try {
         const node = await db.prepare('SELECT *, group_tag AS groupTag, network_monitor_enabled AS networkMonitorEnabled, last_report_json AS lastReport FROM vps_nodes WHERE LOWER(id) = LOWER(?)').bind(id).first();
         if (!node) return c.json({ error: 'Not found' }, 404);
-        return c.json({ success: true, node: { ...node, enabled: !!node.enabled, networkMonitorEnabled: !!node.networkMonitorEnabled, latest: node.lastReport ? JSON.parse(node.lastReport) : null }, guide: buildGuide(new URL(c.req.url).origin, node.id, node.secret) });
+        const normalizedNode = { ...node, enabled: !!node.enabled, networkMonitorEnabled: !!node.networkMonitorEnabled, latest: safeJsonParse(node.lastReport, null) };
+        return c.json({ success: true, data: normalizedNode, node: normalizedNode, guide: buildGuide(new URL(c.req.url).origin, node.id, node.secret) });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
@@ -150,15 +339,107 @@ vps.delete('/nodes/:id', async (c) => {
 });
 
 vps.get('/targets', async (c) => {
-    const db = c.env.MIPULSE_DB; try { const { results } = await db.prepare('SELECT * FROM vps_network_targets WHERE node_id = ? ORDER BY created_at DESC').bind(c.req.query('nodeId')).all(); return c.json({ success: true, targets: results }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    const db = c.env.MIPULSE_DB;
+    try {
+        const nodeId = c.req.query('nodeId');
+        const { results } = await db.prepare('SELECT * FROM vps_network_targets WHERE node_id = ? ORDER BY created_at DESC').bind(nodeId).all();
+        const { results: sampleRows } = await db.prepare('SELECT data FROM vps_network_samples WHERE node_id = ? ORDER BY reported_at DESC LIMIT 100').bind(nodeId === 'global' ? 'global' : nodeId).all();
+        const latestSampleMap = {};
+        for (const row of sampleRows || []) {
+            const parsed = safeJsonParse(row.data, null);
+            if (parsed?.targetId && !latestSampleMap[parsed.targetId]) {
+                latestSampleMap[parsed.targetId] = parsed;
+            }
+        }
+        const normalizedTargets = (results || []).map((target) => normalizeTargetListItem(target, latestSampleMap));
+        return c.json({ success: true, data: normalizedTargets, targets: normalizedTargets });
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
 vps.post('/targets', async (c) => {
     const db = c.env.MIPULSE_DB; const body = await c.req.json(); try { await db.prepare('INSERT INTO vps_network_targets (id, node_id, type, target, name, enabled) VALUES (?, ?, ?, ?, ?, 1)').bind(crypto.randomUUID(), body.nodeId, body.type, body.target, body.name).run(); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
+vps.put('/targets/:id', async (c) => {
+    const db = c.env.MIPULSE_DB;
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    try {
+        const existing = await db.prepare('SELECT * FROM vps_network_targets WHERE id = ?').bind(id).first();
+        if (!existing) return c.json({ success: false, error: 'Target not found' }, 404);
+        const next = {
+            type: body.type ?? existing.type,
+            target: body.target ?? existing.target,
+            name: body.name ?? existing.name,
+            scheme: body.scheme ?? existing.scheme,
+            port: body.port ?? existing.port,
+            path: body.path ?? existing.path,
+            enabled: body.enabled === undefined ? existing.enabled : (body.enabled ? 1 : 0)
+        };
+        await db.prepare('UPDATE vps_network_targets SET type = ?, target = ?, name = ?, scheme = ?, port = ?, path = ?, enabled = ?, updated_at = datetime("now") WHERE id = ?')
+            .bind(next.type, next.target, next.name, next.scheme, next.port, next.path, next.enabled, id)
+            .run();
+        return c.json({ success: true, data: { id, ...next, enabled: !!next.enabled } });
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+});
+
 vps.delete('/targets/:id', async (c) => {
     const db = c.env.MIPULSE_DB; try { await db.prepare('DELETE FROM vps_network_targets WHERE id = ?').bind(c.req.param('id')).run(); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+});
+
+vps.post('/targets/check', async (c) => {
+    const db = c.env.MIPULSE_DB;
+    const body = await c.req.json();
+    try {
+        const target = await db.prepare('SELECT * FROM vps_network_targets WHERE id = ? AND node_id = ?').bind(body.targetId, body.nodeId).first();
+        if (!target) return c.json({ success: false, error: 'Target not found' }, 404);
+        if (body.nodeId !== 'global') {
+            await db.prepare('UPDATE vps_network_targets SET force_check_at = datetime("now"), updated_at = datetime("now") WHERE id = ?')
+                .bind(target.id)
+                .run();
+            return c.json({
+                success: true,
+                data: {
+                    targetId: target.id,
+                    nodeId: body.nodeId,
+                    status: 'queued',
+                    queuedAt: nowIso(),
+                    mode: 'probe'
+                }
+            });
+        }
+        const result = await executeTargetCheck(target);
+        return c.json({
+            success: true,
+            data: {
+                targetId: target.id,
+                nodeId: target.node_id,
+                status: result.ok ? 'reachable' : 'unreachable',
+                checkedAt: result.checkedAt,
+                latencyMs: result.latencyMs,
+                statusCode: result.status,
+                mode: result.mode,
+                url: result.url,
+                error: result.error || null
+            }
+        });
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+});
+
+vps.get('/alerts', async (c) => {
+    const db = c.env.MIPULSE_DB;
+    try {
+        const { results } = await db.prepare('SELECT id, node_id AS nodeId, type, message, created_at AS createdAt FROM vps_alerts ORDER BY created_at DESC LIMIT 100').all();
+        return c.json({ success: true, data: results, alerts: results });
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+});
+
+vps.delete('/alerts', async (c) => {
+    const db = c.env.MIPULSE_DB;
+    try {
+        await db.prepare('DELETE FROM vps_alerts').run();
+        return c.json({ success: true, data: { cleared: true } });
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
 // 6.5 PROBE: GET /api/vps/probe/targets (v1.5.7)
@@ -168,14 +449,76 @@ vps.get('/probe/targets', async (c) => {
     const rawId = (c.req.query('nodeId') || c.req.query('id') || c.req.header('x-node-id') || '').trim();
     const rawSecret = (c.req.query('secret') || c.req.query('key') || c.req.header('x-node-secret') || '').trim();
     if (!rawId || !rawSecret) return c.json({ error: 'Missing credentials' }, 401);
-    const node = await db.prepare('SELECT id, secret, network_monitor_enabled FROM vps_nodes WHERE LOWER(id) = LOWER(?)').bind(rawId).first();
-    if (!node || node.secret !== rawSecret) return c.json({ error: 'Invalid credentials' }, 401);
+    const node = await getProbeNode(db, rawId, rawSecret);
+    if (!node) return c.json({ error: 'Invalid credentials' }, 401);
     try {
-        let query = 'SELECT target FROM vps_network_targets WHERE enabled = 1 AND (node_id = ?';
-        if (node.network_monitor_enabled) query += " OR node_id = 'global'";
-        query += ')';
-        const { results } = await db.prepare(query).bind(node.id).all();
+        const results = await getProbeTargets(db, node);
         return c.json({ success: true, targets: results.map(r => r.target) });
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+});
+
+vps.get('/probe/checks', async (c) => {
+    c.header('Cache-Control', 'no-store, max-age=0');
+    const db = c.env.MIPULSE_DB;
+    const rawId = (c.req.query('nodeId') || c.req.query('id') || c.req.header('x-node-id') || '').trim();
+    const rawSecret = (c.req.query('secret') || c.req.query('key') || c.req.header('x-node-secret') || '').trim();
+    const node = await getProbeNode(db, rawId, rawSecret);
+    if (!node) return c.json({ error: 'Invalid credentials' }, 401);
+    try {
+        const targets = await getProbeTargets(db, node);
+        const pendingChecks = targets.filter((target) => target.forceCheckAt);
+        return c.json({ success: true, data: pendingChecks, checks: pendingChecks });
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+});
+
+vps.get('/probe/checks.txt', async (c) => {
+    c.header('Cache-Control', 'no-store, max-age=0');
+    const db = c.env.MIPULSE_DB;
+    const rawId = (c.req.query('nodeId') || c.req.query('id') || c.req.header('x-node-id') || '').trim();
+    const rawSecret = (c.req.query('secret') || c.req.query('key') || c.req.header('x-node-secret') || '').trim();
+    const node = await getProbeNode(db, rawId, rawSecret);
+    if (!node) return c.text('unauthorized', 401);
+    try {
+        const targets = await getProbeTargets(db, node);
+        const pendingChecks = targets.filter((target) => target.forceCheckAt);
+        const lines = pendingChecks.map((target) => [
+            target.id,
+            target.type || '',
+            target.target || '',
+            target.scheme || '',
+            target.port || '',
+            target.path || ''
+        ].join('|'));
+        return c.text(lines.join('\n'));
+    } catch (err) { return c.text(err.message, 500); }
+});
+
+vps.post('/probe/check-results', async (c) => {
+    const db = c.env.MIPULSE_DB;
+    const body = await c.req.json();
+    const rawId = (c.req.header('x-node-id') || body?.nodeId || '').trim();
+    const rawSecret = (c.req.header('x-node-secret') || body?.secret || '').trim();
+    const node = await getProbeNode(db, rawId, rawSecret);
+    if (!node) return c.json({ error: 'Invalid credentials' }, 401);
+
+    const checks = Array.isArray(body?.checks) ? body.checks : [];
+    try {
+        const statements = [];
+        for (const check of checks) {
+            if (!check?.targetId) continue;
+            statements.push(
+                db.prepare('INSERT INTO vps_network_samples (id, node_id, reported_at, data) VALUES (?, ?, ?, ?)')
+                    .bind(crypto.randomUUID(), check.nodeId || node.id, nowIso(), JSON.stringify({ ...check, checkedAt: check.checkedAt || nowIso() }))
+            );
+            statements.push(
+                db.prepare('UPDATE vps_network_targets SET force_check_at = NULL, updated_at = datetime("now") WHERE id = ?')
+                    .bind(check.targetId)
+            );
+        }
+        if (statements.length) {
+            await db.batch(statements);
+        }
+        return c.json({ success: true, data: { accepted: checks.length } });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
@@ -198,7 +541,7 @@ vps.get('/public/nodes/:id', async (c) => {
         `).bind(id).all();
 
         const samples = reports.map(r => {
-            const d = JSON.parse(r.data);
+            const d = safeJsonParse(r.data, {});
             return {
                 timestamp: r.timestamp,
                 lossPercent: d.lossPercent || 0,
@@ -224,20 +567,36 @@ vps.get('/public/nodes/:id', async (c) => {
 });
 
 vps.get('/settings', async (c) => {
-    const db = c.env.MIPULSE_DB; try { const { results } = await db.prepare('SELECT key, value FROM settings').all(); const settings = {}; results.forEach(r => settings[r.key] = r.key.endsWith('_json') ? JSON.parse(r.value) : r.value); return c.json({ success: true, settings }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    const db = c.env.MIPULSE_DB; try { const { results } = await db.prepare('SELECT key, value FROM settings').all(); const settings = {}; results.forEach(r => settings[r.key] = r.key.endsWith('_json') ? safeJsonParse(r.value, {}) : r.value); return c.json({ success: true, data: settings, settings }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
 vps.post('/settings', async (c) => {
     const db = c.env.MIPULSE_DB; const body = await c.req.json(); 
     try { 
-        const queries = Object.entries(body).map(([k, v]) => { 
+        const normalizedBody = body.vpsMonitor ? { vps_monitor_json: body.vpsMonitor } : body;
+        const queries = Object.entries(normalizedBody).map(([k, v]) => { 
             const val = typeof v === 'object' ? JSON.stringify(v) : String(v); 
             return db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime("now"))').bind(k, val); 
         }); 
         await db.batch(queries); 
         // Invalidate public cache
         const kv = c.env.MIPULSE_KV; if (kv) { await kv.delete('cache:public_nodes'); }
-        return c.json({ success: true }); 
+        return c.json({ success: true, data: normalizedBody, settings: normalizedBody }); 
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+});
+
+vps.post('/notifications/test', async (c) => {
+    const db = c.env.MIPULSE_DB;
+    try {
+        const config = await getNotificationConfig(db);
+        const result = await sendTestNotifications(config);
+        return c.json({
+            success: true,
+            data: {
+                ...result,
+                checkedAt: nowIso()
+            }
+        });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
@@ -271,12 +630,55 @@ vps.get('/install', async (c) => {
         '  fi',
         '}',
         '',
+        'submit_forced_checks() {',
+        '  local check_lines=$(curl -sSL --connect-timeout 10 -m 30 -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" "$MIPULSE_URL/api/vps/probe/checks.txt?nodeId=$MIPULSE_ID&secret=$MIPULSE_SECRET")',
+        '  [[ -z "$check_lines" ]] && return 0',
+        '  while IFS="|" read -r target_id target_type target_host target_scheme target_port target_path; do',
+        '    [[ -z "$target_id" ]] && continue',
+        '    check_url=""',
+        '    latency=0',
+        '    code=0',
+        '    status="unreachable"',
+        '    mode="probe"',
+        '    started=$(date +%s)',
+        '    if [[ "$target_type" == "icmp" ]]; then',
+        '      mode="icmp"',
+        '      check_url="$target_host"',
+        '      if command -v ping >/dev/null 2>&1; then',
+        '        ping_out=$(ping -c 1 -W 2 "$target_host" 2>/dev/null || true)',
+        '        avg=$(echo "$ping_out" | grep -o "time=[0-9.]*" | cut -d= -f2 | tr -d "\r")',
+        '        if [[ -n "$avg" ]]; then status="reachable"; latency=${avg%.*}; [[ -z "$latency" ]] && latency=1; code=200; fi',
+        '      fi',
+        '    elif [[ "$target_type" == "tcp" ]]; then',
+        '      mode="tcp"',
+        '      tcp_port=${target_port:-80}',
+        '      check_url="tcp://$target_host:$tcp_port"',
+        '      if timeout 5 bash -c "</dev/tcp/$target_host/$tcp_port" >/dev/null 2>&1; then status="reachable"; code=200; fi',
+        '    else',
+        '      mode="http"',
+        '      check_url="https://$target_host"',
+        '      [[ -n "$target_scheme" ]] && check_url="$target_scheme://$target_host"',
+        '      [[ -n "$target_port" ]] && check_url="$check_url:$target_port"',
+        '      [[ -n "$target_path" ]] && check_url="$check_url$target_path"',
+        '      code=$(curl -o /dev/null -s -w "%{http_code}" --connect-timeout 5 -m 10 -I "$check_url" 2>/dev/null || echo 000)',
+        '      if [[ "$code" != "000" ]]; then status="reachable"; fi',
+        '    fi',
+        '    ended=$(date +%s)',
+        '    if [[ "$latency" -eq 0 ]]; then latency=$(( (ended-started) * 1000 )); fi',
+        '    payload="{\"checks\":[{\"targetId\":\"$target_id\",\"nodeId\":\"$MIPULSE_ID\",\"status\":\"$status\",\"statusCode\":${code:-0},\"latencyMs\":${latency:-0},\"checkedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"mode\":\"$mode\",\"url\":\"$check_url\"}]}"',
+        '    curl -sS --connect-timeout 10 -m 30 -X POST "$MIPULSE_URL/api/vps/probe/check-results" -H "Content-Type: application/json" -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" -d "$payload" >/dev/null 2>&1 || true',
+        '    echo "[$(date)] Forced check $target_id => $status ($latency ms)" >> "$LOG"',
+        '  done <<< "$check_lines"',
+        '}',
+        '',
         'fetch_targets',
         'last_target_update=$(date +%s)',
+        'last_forced_check_poll=$(date +%s)',
         '',
         'while true; do',
         '  now=$(date +%s)',
         '  if (( now - last_target_update > 300 )); then fetch_targets; last_target_update=$now; fi',
+        '  if (( now - last_forced_check_poll > 20 )); then submit_forced_checks; last_forced_check_poll=$now; fi',
         '  ',
         '  cpu_percent="0.00"',
         '  if [[ -f /proc/stat ]]; then',
