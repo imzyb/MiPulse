@@ -18,81 +18,49 @@
 
 ---
 
-## 🏗️ 架构概览
-
-```mermaid
-graph LR
-    subgraph "Global Nodes"
-        A[VPS Node A]
-        B[VPS Node B]
-    end
-
-    subgraph "Cloudflare Ecosystem"
-        C[Hono Worker API]
-        D[(Cloudflare D1 DB)]
-        E[Vite Assets]
-    end
-
-    A -- Report (HMAC/Secret) --> C
-    B -- Report (HMAC/Secret) --> C
-    C -- Queries --> D
-    User -- Browser Access --> E
-    E -- API Calls (JWT) --> C
-```
-
----
-
----
-
 ## 🚀 快速部署 (Quick Start)
 
-根据你的需求选择以下部署方式之一。我们强烈推荐使用 **选项 0** 以获得最快、最自动化的体验。
+根据你的需求选择以下部署方式。我们强烈推荐使用 **选项 0** 以获得最佳的长期维护体验。
 
-### 选项 0：一键直接部署 (最推荐 🚀)
+如果你希望 Fork 本项目并能随时同步主仓库的更新，这是**最标准且推荐**的方式：
 
-如果你想跳过所有配置步骤，直接点击下方按钮。它将引导你自动创建所有必要的 Cloudflare 资源（D1, KV）并完成初始部署。
+1.  **Fork 本项目**: 点击页面右上角的 **Fork** 按钮。
+2.  **登录 Cloudflare**: 进入 [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) 控制台。
+3.  **创建应用**: 点击 **Create application** -> **Workers** -> **Connect to Git**。
+4.  **关联仓库**: 选择你 Fork 后的 `MiPulse` 仓库。
+5.  **构建设置**:
+    - **Build command**: `npm run build`
+    - **Build output directory**: `dist`
+6.  **配置资源 (重要)**:
+    - 第一次部署完成后，进入项目的 **Settings -> Bindings**。
+    - 在 **D1 database bindings** 中添加名称 `MIPULSE_DB`，并选择你的 D1 数据库。
+    - 在 **KV namespace bindings** 中添加名称 `MIPULSE_KV`，并选择你的 KV 命名空间。
+    - 重新点击 **Deployments -> Retry deployment**。
+
+> [!TIP]
+> **自动更新**: 使用此方法后，你只需在 GitHub 页面点击 **"Sync Fork"** 即可自动触发 Cloudflare 的同步部署。
+
+---
+
+### 选项 1：一键快照部署 (适合快速试用 ⚡)
+
+如果你不想 Fork，只想快速尝试功能，可以使用此按钮。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/imzyb/MiPulse)
 
-1. 点击上方按钮。
-2. 按照页面提示授权并创建 **D1 数据库** (mipulse_db) 和 **KV 命名空间** (mipulse_kv)。
-3. 部署完成后，系统将自动进入运行状态。
+1. 点击按钮并按照提示创建 D1 和 KV 资源。
+2. 系统会自动完成初始部署并进入运行状态。
 
-> [!IMPORTANT]
-> **初始化数据库 (必须)**: 部署成功后，你需要手动运行一次建表脚本。请参考下方的 [数据库初始化](#-数据库初始化-重要) 章节。
-
----
-
-### 选项 1：GitHub 关联部署 (标准集成 🌟)
-
-如果你 Fork 了本项目，推荐使用 Cloudflare 控制台的 "Connect to Git" 功能。这是最标准且支持自动更新的方式：
-
-1.  **登录 Cloudflare**: 进入 [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) 控制台。
-2.  **创建应用**: 点击 **Create application** -> **Workers** -> **Connect to Git**。
-3.  **关联仓库**: 选择你 Fork 后的 `MiPulse` 仓库。
-4.  **构建设置**:
-    - **Build command**: `npm run build`
-    - **Build output directory**: `dist` (或保持默认)
-5.  **配置资源 (重要)**:
-    - 第一次部署完成后，由于未绑定资源，应用可能会报错。
-    - 进入该项目的 **Settings -> Bindings**。
-    - 在 **D1 database bindings** 中点击 **Add binding**：名称填 `MIPULSE_DB`，并选择你创建的 D1 数据库。
-    - 在 **KV namespace bindings** 中点击 **Add binding**：名称填 `MIPULSE_KV`，并选择你创建的 KV 命名空间。
-    - 重新点击 **Deployments -> Retry deployment**。
-
-> [!IMPORTANT]
-> **初始化数据库 (必须)**: 绑定成功后，你需要手动运行一次建表脚本。请参考下方的 [数据库初始化](#-数据库初始化-重要) 章节。
-
-> [!TIP]
-> **自定义域名 (推荐)**: 为了确保全球访问的稳定性（尤其是解决部分地区对 `workers.dev` 的屏蔽问题）以及功能的完整性，建议在 **Settings -> Domains** 中绑定你的自定义域名。
+> [!WARNING]
+> **更新限制**: 通过此方式导入的仓库是**独立快照**，无法直接通过 GitHub 网页同步上游更新。如果你后续需要同步新功能，请参考下方的 [如何同步更新](#-如何同步更新) 指南。
 
 ---
 
 ## 🗄️ 数据库初始化 (重要)
 
-由于 Cloudflare 网页端部署目前不会自动执行 SQL 脚本，在首次部署成功后，你**必须**执行以下步骤来创建数据表，否则会报 `no such table` 错误。
+由于网页端部署目前不会自动执行 SQL 脚本，首次部署成功后，你**必须**执行以下步骤来创建数据表，否则会报 `no such table` 错误。
 
-### 方法 A：通过 Cloudflare 网页控制台 (无需安装环境)
+### 方法 A：通过 Cloudflare 网页控制台 (无需环境)
 
 1.  登录 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
 2.  进入 **Workers & Pages** -> **D1** -> 点击你的 **`mipulse_db`**。
@@ -100,47 +68,36 @@ graph LR
 4.  打开项目根目录下的 [schema.sql](schema.sql) 文件，复制其全部内容。
 5.  粘贴到控制台的输入框中，点击 **Execute**。
 
-### 方法 B：通过本地命令行 (适合开发者)
+### 方法 B：通过本地命令行 (推荐)
 
-在你的本地项目终端中运行：
+在本地项目终端运行：
 ```bash
-npx wrangler d1 execute mipulse_db --remote --file=./schema.sql
+npm run db:init:remote
 ```
 
 ---
 
-### 选项 2：本地命令行部署 (全自动)
+## 🔄 如何同步更新
 
-MiPulse 提供了全自动化的资源开通与部署脚本，适合需要本地控制或二次开发的用户：
+如果你使用的是“选项 1：一键快照部署”，或者想通过命令行手动同步主仓库的代码：
 
-```bash
-# 1. 克隆仓库
-git clone https://github.com/imzyb/MiPulse.git
-cd MiPulse
+1. **添加上游仓库 (仅需一次)**:
+   ```bash
+   git remote add upstream https://github.com/imzyb/MiPulse.git
+   ```
 
-# 2. 安装项目依赖
-npm install
+2. **拉取并合并更新**:
+   ```bash
+   git fetch upstream
+   git merge upstream/main
+   git push origin main
+   ```
+   *推送成功后，Cloudflare 会自动识别变动并重新构建。*
 
-# 3. 登录 Cloudflare (仅需一次)
-npx wrangler login
-
-# 4. 全自动部署 (自动识别并创建 D1/KV)
-npm run deploy
-```
+---
 
 > [!TIP]
-> 运行 `npm run deploy` 后，脚本会自动检测你的账户并获取正确的 ID。如果没有对应资源，它将自动为你创建并完成本地 `wrangler.local.toml` 的配置。
-
----
-
-### 选项 3：针对 Fork 用户的 Actions 自动部署
-
-如果你希望通过 GitHub Actions 实现自动化运维：
-
-1. 在你的 GitHub 仓库 `Settings > Secrets and variables > Actions` 中添加一个 **New repository secret**：
-   - 名称：`CLOUDFLARE_API_TOKEN`
-   - 值：通过 [Cloudflare Dash](https://dash.cloudflare.com/profile/api-tokens) 创建的具有 `Edit Workers` 权限的 Token。
-2. 之后你对仓库的任何 `push` 都会自动触发 Cloudflare 的构建与发布。
+> **自定义域名 (推荐)**: 为避开部分地区对 `workers.dev` 的访问限制，建议在 **Settings -> Domains** 中绑定你的自定义域名。
 
 ---
 
@@ -167,13 +124,6 @@ export MIPULSE_URL="https://<your-worker>.workers.dev"
 export MIPULSE_ID="your-node-id"
 export MIPULSE_SECRET="your-node-secret"
 ```
-
-## 🔄 如何同步更新
-
-当上游仓库有新功能或修复发布时，你可以通过以下方式同步：
-
-1.  **手动同步 (推荐)**: 在你的 Fork 仓库页面点击 `Sync fork` -> `Update branch`。GitHub 会自动合并最新代码，并触发 Cloudflare 的自动构建与部署。
-2.  **自动化同步**: 本项目内置了 GitHub Action 脚本。进入你仓库的 `Actions` 选项卡并启用 `Fork Sync` 工作流，系统将每天自动检查并同步上游更新。
 
 ## 📜 开源协议
 
