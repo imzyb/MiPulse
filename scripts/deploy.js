@@ -33,30 +33,38 @@ if (buildResult.status !== 0) {
 let kvId = process.env.MIPULSE_KV_ID;
 let d1Id = process.env.MIPULSE_D1_ID;
 
+// Function to validate UUID/Hex ID format
+function isValidId(id) {
+    if (!id || typeof id !== 'string') return false;
+    // UUID (8-4-4-4-12) or 32-char hex string
+    return /^[a-f0-9-]{32,36}$/i.test(id);
+}
+
 // If not in CI, try to load from wrangler.local.toml
-if (!kvId || !d1Id) {
+if (!isValidId(kvId) || !isValidId(d1Id)) {
     if (existsSync(LOCAL_CONFIG)) {
         const content = readFileSync(LOCAL_CONFIG, 'utf-8');
+        console.log('🔍 Parsing existing wrangler.local.toml...');
+        
         // Match specifically within d1_databases and kv_namespaces sections
         const d1SectionMatch = content.match(/\[\[d1_databases\]\]([\s\S]*?)(?=\[\[|$)/);
         const kvSectionMatch = content.match(/\[\[kv_namespaces\]\]([\s\S]*?)(?=\[\[|$)/);
         
         if (d1SectionMatch) {
             const d1IdMatch = d1SectionMatch[1].match(/database_id\s*=\s*"([^"]+)"/);
-            if (d1IdMatch) d1Id = d1IdMatch[1];
+            if (d1IdMatch && isValidId(d1IdMatch[1])) {
+                d1Id = d1IdMatch[1];
+                console.log(`✅ Loaded D1 ID from config: ${d1Id}`);
+            }
         }
         if (kvSectionMatch) {
-            const kvIdMatch = kvSectionMatch[1].match(/id\s*=\s*"([^"]+)"/);
-            if (kvIdMatch) kvId = kvIdMatch[1];
+            const kvIdMatch = kvSectionMatch[1].match(/^\s*id\s*=\s*"([^"]+)"/m); // Use ^ + /m to ONLY match 'id' at start of line
+            if (kvIdMatch && isValidId(kvIdMatch[1])) {
+                kvId = kvIdMatch[1];
+                console.log(`✅ Loaded KV ID from config: ${kvId}`);
+            }
         }
     }
-}
-
-// Function to validate UUID/Hex ID format
-function isValidId(id) {
-    if (!id) return false;
-    // UUID (8-4-4-4-12) or 32-char hex string
-    return /^[a-f0-9-]{32,36}$/i.test(id);
 }
 
 // Check Cloudflare Resources
@@ -71,14 +79,19 @@ if (!isValidId(d1Id)) {
     if (d1ListResult.status === 0) {
         try {
             const d1s = JSON.parse(d1ListResult.stdout);
-            // Search case-insensitively for existing project named MIPULSE_DB or mipulse_db
-            const existing = d1s.find(d => d.name.toLowerCase() === D1_RESOURCE_NAME.toLowerCase() || d.name.toLowerCase() === D1_BINDING.toLowerCase());
+            // Search case-insensitively for both resource name and binding name
+            const existing = d1s.find(d => 
+                d.name.toLowerCase() === D1_RESOURCE_NAME.toLowerCase() || 
+                d.name.toLowerCase() === D1_BINDING.toLowerCase()
+            );
             if (existing) {
                 d1Id = existing.uuid || existing.database_id;
-                d1Found = !!d1Id;
-                if (d1Found) console.log(`✅ Found existing D1: ${d1Id} (${existing.name})`);
+                d1Found = isValidId(d1Id);
+                if (d1Found) console.log(`✅ Found existing D1: ${d1Id} (Name: ${existing.name})`);
             }
-        } catch (e) {}
+        } catch (e) {
+            console.warn('⚠️ Warning: Failed to parse D1 list JSON.');
+        }
     }
 
     if (!d1Found) {
@@ -112,13 +125,18 @@ if (!isValidId(kvId)) {
         try {
             const kvs = JSON.parse(kvListResult.stdout);
             // Search case-insensitively
-            const existing = kvs.find(k => k.title && (k.title.toLowerCase().includes(KV_RESOURCE_NAME.toLowerCase()) || k.title.toLowerCase().includes(KV_BINDING.toLowerCase())));
+            const existing = kvs.find(k => k.title && (
+                k.title.toLowerCase() === KV_RESOURCE_NAME.toLowerCase() || 
+                k.title.toLowerCase() === KV_BINDING.toLowerCase()
+            ));
             if (existing) {
                 kvId = existing.id;
-                kvFound = !!kvId;
-                if (kvFound) console.log(`✅ Found existing KV: ${kvId} (${existing.title})`);
+                kvFound = isValidId(kvId);
+                if (kvFound) console.log(`✅ Found existing KV: ${kvId} (Title: ${existing.title})`);
             }
-        } catch (e) {}
+        } catch (e) {
+            console.warn('⚠️ Warning: Failed to parse KV list JSON.');
+        }
     }
 
     if (!kvFound) {
