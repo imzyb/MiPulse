@@ -37,18 +37,33 @@ let d1Id = process.env.MIPULSE_D1_ID;
 if (!kvId || !d1Id) {
     if (existsSync(LOCAL_CONFIG)) {
         const content = readFileSync(LOCAL_CONFIG, 'utf-8');
-        const kvMatch = content.match(/id\s*=\s*"([^"]+)"/);
-        const d1Match = content.match(/database_id\s*=\s*"([^"]+)"/);
-        if (kvMatch) kvId = kvMatch[1];
-        if (d1Match) d1Id = d1Match[1];
+        // Match specifically within d1_databases and kv_namespaces sections
+        const d1SectionMatch = content.match(/\[\[d1_databases\]\]([\s\S]*?)(?=\[\[|$)/);
+        const kvSectionMatch = content.match(/\[\[kv_namespaces\]\]([\s\S]*?)(?=\[\[|$)/);
+        
+        if (d1SectionMatch) {
+            const d1IdMatch = d1SectionMatch[1].match(/database_id\s*=\s*"([^"]+)"/);
+            if (d1IdMatch) d1Id = d1IdMatch[1];
+        }
+        if (kvSectionMatch) {
+            const kvIdMatch = kvSectionMatch[1].match(/id\s*=\s*"([^"]+)"/);
+            if (kvIdMatch) kvId = kvIdMatch[1];
+        }
     }
+}
+
+// Function to validate UUID/Hex ID format
+function isValidId(id) {
+    if (!id) return false;
+    // UUID (8-4-4-4-12) or 32-char hex string
+    return /^[a-f0-9-]{32,36}$/i.test(id);
 }
 
 // Check Cloudflare Resources
 console.log('🔍 Step 2: Checking Cloudflare resources...');
 
 // A. Handle D1
-if (!d1Id || d1Id.includes('your-d1')) {
+if (!isValidId(d1Id)) {
     console.log(`📡 Searching for D1 database: ${D1_RESOURCE_NAME}...`);
     const d1ListResult = runCommand('npx', ['wrangler', 'd1', 'list', '--json']);
     let d1Found = false;
@@ -56,11 +71,12 @@ if (!d1Id || d1Id.includes('your-d1')) {
     if (d1ListResult.status === 0) {
         try {
             const d1s = JSON.parse(d1ListResult.stdout);
-            const existing = d1s.find(d => d.name === D1_RESOURCE_NAME);
+            // Search case-insensitively for existing project named MIPULSE_DB or mipulse_db
+            const existing = d1s.find(d => d.name.toLowerCase() === D1_RESOURCE_NAME.toLowerCase() || d.name.toLowerCase() === D1_BINDING.toLowerCase());
             if (existing) {
-                d1Id = existing.uuid;
-                d1Found = true;
-                console.log(`✅ Found existing D1: ${d1Id}`);
+                d1Id = existing.uuid || existing.database_id;
+                d1Found = !!d1Id;
+                if (d1Found) console.log(`✅ Found existing D1: ${d1Id} (${existing.name})`);
             }
         } catch (e) {}
     }
@@ -70,7 +86,6 @@ if (!d1Id || d1Id.includes('your-d1')) {
         const d1CreateResult = runCommand('npx', ['wrangler', 'd1', 'create', D1_RESOURCE_NAME, '--json']);
         if (d1CreateResult.status === 0) {
             try {
-                // Some wrangler versions return JSON, some return text with "uuid"
                 const output = JSON.parse(d1CreateResult.stdout);
                 d1Id = output.uuid || output.database_id;
             } catch (e) {
@@ -80,40 +95,42 @@ if (!d1Id || d1Id.includes('your-d1')) {
         }
     }
     
-    if (d1Id) {
+    if (isValidId(d1Id)) {
         console.log(`🛠️ Initializing D1 database schema...`);
-        runCommand('npx', ['wrangler', 'd1', 'execute', D1_RESOURCE_NAME, '--remote', '--file=./schema.sql'], { stdio: 'inherit' });
+        runCommand('npx', ['wrangler', 'd1', 'execute', d1Id, '--remote', '--file=./schema.sql'], { stdio: 'inherit' });
     }
 }
 
 // B. Handle KV
-if (!kvId || kvId.includes('your-kv')) {
+if (!isValidId(kvId)) {
     console.log(`📡 Searching for KV namespace: ${KV_RESOURCE_NAME}...`);
-    const kvListResult = runCommand('npx', ['wrangler', 'kv:namespace', 'list']);
+    // Note: wrangler v3/v4 use 'kv namespace list'
+    const kvListResult = runCommand('npx', ['wrangler', 'kv', 'namespace', 'list']);
     let kvFound = false;
     
     if (kvListResult.status === 0) {
         try {
             const kvs = JSON.parse(kvListResult.stdout);
-            const existing = kvs.find(k => k.title && k.title.includes(KV_RESOURCE_NAME));
+            // Search case-insensitively
+            const existing = kvs.find(k => k.title && (k.title.toLowerCase().includes(KV_RESOURCE_NAME.toLowerCase()) || k.title.toLowerCase().includes(KV_BINDING.toLowerCase())));
             if (existing) {
                 kvId = existing.id;
-                kvFound = true;
-                console.log(`✅ Found existing KV: ${kvId}`);
+                kvFound = !!kvId;
+                if (kvFound) console.log(`✅ Found existing KV: ${kvId} (${existing.title})`);
             }
         } catch (e) {}
     }
 
     if (!kvFound) {
         console.log(`✨ Creating new KV namespace: ${KV_RESOURCE_NAME}...`);
-        const kvCreateResult = runCommand('npx', ['wrangler', 'kv:namespace', 'create', KV_RESOURCE_NAME]);
+        const kvCreateResult = runCommand('npx', ['wrangler', 'kv', 'namespace', 'create', KV_RESOURCE_NAME]);
         const match = kvCreateResult.stdout.match(/id\s*=\s*"([^"]+)"/);
         if (match) kvId = match[1];
     }
 }
 
 // 3. Update Local Configuration
-if (kvId && d1Id) {
+if (isValidId(kvId) && isValidId(d1Id)) {
     const localConfigContent = `name = "mipulse"
 main = "src/server/index.js"
 compatibility_date = "2024-03-31"

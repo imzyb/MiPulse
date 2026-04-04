@@ -46,15 +46,22 @@ graph LR
 
 根据你的需求选择以下部署方式之一。
 
-### 选项 1：GitHub 一键部署 (最快 🌟)
+### 选项 1：GitHub 关联部署 (推荐 🌟)
 
-如果你想最快上线，可以使用 Cloudflare 官方提供的一键部署工具。它会自动克隆项目并引导你完成所有配置：
+如果你 Fork 了本项目，推荐使用 Cloudflare 控制台的 "Connect to Git" 功能。这是最标准且支持自动更新的方式：
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/imzyb/MiPulse)
-
-1. 点击上方按钮，授权 GitHub 并选择你的账户。
-2. 按照向导提示创建 **D1 数据库** 和 **KV 命名空间** (系统会自动为您识别 ID)。
-3. 部署完成后，在 Cloudflare 控制台即可看到你的监控站点。
+1.  **登录 Cloudflare**: 进入 [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) 控制台。
+2.  **创建应用**: 点击 **Create application** -> **Pages** -> **Connect to Git**。
+3.  **关联仓库**: 选择你 Fork 后的 `MiPulse` 仓库。
+4.  **构建设置**:
+    - **Framework preset**: 保持 `None` (或选择 `Vite`)。
+    - **Build command**: `npm run build`
+    - **Build output directory**: `dist`
+5.  **配置资源 (重要)**:
+    - 部署成功后，进入该项目的 **Settings -> Functions -> Bindings**。
+    - 在 **D1 database bindings** 中点击 **Add binding**：名称填 `MIPULSE_DB`，并选择或创建一个 D1 数据库。
+    - 在 **KV namespace bindings** 中点击 **Add binding**：名称填 `MIPULSE_KV`，并选择或创建一个 KV 命名空间。
+    - 重新点击 **Deployments -> Retry deployment** 即可激活绑定。
 
 ---
 
@@ -73,18 +80,18 @@ npm install
 # 3. 登录 Cloudflare (仅需一次)
 npx wrangler login
 
-# 4. 全自动部署 (自动创建 D1/KV 并初始化数据库)
+# 4. 全自动部署 (自动识别并创建 D1/KV)
 npm run deploy
 ```
 
 > [!TIP]
-> 运行 `npm run deploy` 后，脚本会自动检测你的账户。如果没有 `MIPULSE_DB` 或 `MIPULSE_KV`，它将自动为你创建、执行数据库初始化（schema.sql）并完成绑定。
+> 运行 `npm run deploy` 后，脚本会自动检测你的账户并获取正确的 ID。如果没有对应资源，它将自动为你创建并完成本地 `wrangler.local.toml` 的配置。
 
 ---
 
-### 选项 3：针对 Fork 用户的 CI/CD
+### 选项 3：针对 Fork 用户的 Actions 自动部署
 
-如果你 Fork 了本项目并希望通过 GitHub Actions 实现自动化运维：
+如果你希望通过 GitHub Actions 实现自动化运维：
 
 1. 在你的 GitHub 仓库 `Settings > Secrets and variables > Actions` 中添加一个 **New repository secret**：
    - 名称：`CLOUDFLARE_API_TOKEN`
