@@ -6,11 +6,9 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "MIPULSE_DB"
 database_name = "mipulse_db"
-database_id = "your-d1-database-id-here"
 
 [[kv_namespaces]]
 binding = "MIPULSE_KV"
-id = "your-kv-namespace-id-here"
 
 [assets]
 directory = "./dist"

@@ -14,14 +14,14 @@
   "d1_databases": [
     {
       "binding": "MIPULSE_DB",
-      "database_name": "MIPULSE_DB",
+      "database_name": "mipulse_db",
       "description": "选择 + Create 新建数据库"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "MIPULSE_KV",
-      "namespace_name": "MIPULSE_KV",
+      "namespace_name": "mipulse_kv",
       "description": "选择 + Create 新建命名空间"
     }
   ]

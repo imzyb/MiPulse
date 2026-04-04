@@ -42,26 +42,45 @@ graph LR
 
 ---
 
+---
+
 ## 🚀 快速部署 (Quick Start)
 
-根据你的需求选择以下部署方式之一。
+根据你的需求选择以下部署方式之一。我们强烈推荐使用 **选项 0** 以获得最快、最自动化的体验。
 
-### 选项 1：GitHub 关联部署 (推荐 🌟)
+### 选项 0：一键直接部署 (最推荐 🚀)
+
+如果你想跳过所有配置步骤，直接点击下方按钮。它将引导你自动创建所有必要的 Cloudflare 资源（D1, KV）并完成初始部署。
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/imzyb/MiPulse)
+
+1. 点击上方按钮。
+2. 按照页面提示授权并创建 **D1 数据库** (MIPULSE_DB) 和 **KV 命名空间** (MIPULSE_KV)。
+3. 部署完成后，系统将自动进入运行状态。
+
+---
+
+### 选项 1：GitHub 关联部署 (标准集成 🌟)
 
 如果你 Fork 了本项目，推荐使用 Cloudflare 控制台的 "Connect to Git" 功能。这是最标准且支持自动更新的方式：
 
 1.  **登录 Cloudflare**: 进入 [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) 控制台。
-2.  **创建应用**: 点击 **Create application** -> **Pages** -> **Connect to Git**。
+2.  **创建应用**: 点击 **Create application** -> **Workers** -> **Connect to Git**。
 3.  **关联仓库**: 选择你 Fork 后的 `MiPulse` 仓库。
 4.  **构建设置**:
-    - **Framework preset**: 保持 `None` (或选择 `Vite`)。
     - **Build command**: `npm run build`
-    - **Build output directory**: `dist`
+    - **Build output directory**: `dist` (或保持默认)
 5.  **配置资源 (重要)**:
-    - 部署成功后，进入该项目的 **Settings -> Functions -> Bindings**。
-    - 在 **D1 database bindings** 中点击 **Add binding**：名称填 `MIPULSE_DB`，并选择或创建一个 D1 数据库。
-    - 在 **KV namespace bindings** 中点击 **Add binding**：名称填 `MIPULSE_KV`，并选择或创建一个 KV 命名空间。
-    - 重新点击 **Deployments -> Retry deployment** 即可激活绑定。
+    - 第一次部署完成后，由于未绑定资源，应用可能会报错。
+    - 进入该项目的 **Settings -> Bindings**。
+    - 在 **D1 database bindings** 中点击 **Add binding**：名称填 `MIPULSE_DB`，并选择你创建的 D1 数据库。
+    - 在 **KV namespace bindings** 中点击 **Add binding**：名称填 `MIPULSE_KV`，并选择你创建的 KV 命名空间。
+    - 重新点击 **Deployments -> Retry deployment**。
+6.  **初始化数据库**:
+    - 绑定成功后，你需要运行一次建表脚本。在你的本地终端运行：
+        ```bash
+        npm run db:init:remote
+        ```
 
 ---
 
