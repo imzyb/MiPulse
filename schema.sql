@@ -81,3 +81,10 @@ CREATE INDEX IF NOT EXISTS idx_vps_alerts_node_time ON vps_alerts(node_id, creat
 CREATE INDEX IF NOT EXISTS idx_vps_network_targets_node ON vps_network_targets(node_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_vps_network_samples_node_time ON vps_network_samples(node_id, reported_at);
 CREATE INDEX IF NOT EXISTS idx_settings_updated_at ON settings(updated_at);
+
+-- Default Settings Initialization
+INSERT OR IGNORE INTO settings (key, value) VALUES ('vps_monitor_json', '{"requireSecret":true,"requireSignature":false,"signatureClockSkewMinutes":5,"offlineThresholdMinutes":5,"reportIntervalMinutes":1,"reportStoreIntervalMinutes":5,"alertsEnabled":false,"notifyOffline":true,"notifyRecovery":true,"notifyOverload":true,"cpuWarnPercent":90,"memWarnPercent":90,"diskWarnPercent":90,"alertCooldownMinutes":30,"overloadConfirmCount":3,"reportRetentionDays":7}');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('notification_json', '{"enabled":false,"telegram":{"enabled":false,"botToken":"","chatId":""},"webhook":{"enabled":false,"url":""},"pushplus":{"enabled":false,"token":""}}');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('theme_json', '{"publicThemePreset":"tech","publicThemeTitle":"MiPulse","publicThemeSubtitle":"Real-time monitoring of our global infrastructure. Transparency by default.","publicThemeFooterText":"Powered by MiPulse & Cloudflare"}');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('layout_json', '{"showCharts":true,"showTraffic":true}');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('network_monitor_json', '{"globalEnabled":true,"intervalMin":5,"targetLimit":5,"keepHistoryDays":3}');
