@@ -4,8 +4,7 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/imzyb/MiPulse)
 
-> [!TIP]
-> **如果你是从本仓库 Fork 而来**：为了让上方的一键部署按钮指向你自己的仓库，请在 Fork 后修改 `README.md`，将上方链接中的 `imzyb` 替换为你的 GitHub 用户名。
+
 
 > **MiPulse** 是一款基于 Cloudflare 生态系统（Hono + D1 + Workers with Assets）构建的高性能、极简风格 VPS 探针监控系统。它专为追求极致性能与现代审美且无需复杂服务器配置的用户设计。
 
@@ -47,27 +46,50 @@ graph LR
 
 ## 🚀 快速开始
 
-### 1. 全自动一键部署 (推荐)
+根据你的需求选择以下部署方式之一。如果你已经 Fork 了本仓库，**强烈建议使用方式 1** 以获得自动更新能力。
 
-只需要登录 Cloudflare，然后运行以下命令，系统将自动创建数据库、KV、更新配置并完成发布：
+### 1. GitHub CI/CD 自动部署 (Fork 用户推荐 🌟)
+
+这是最专业的方式。关联后，你对仓库的任何 `push` 都会自动触发 Cloudflare 的构建与发布。
+
+1.  **登录 Cloudflare**: 进入 [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) 控制台。
+2.  **创建应用**: 点击 **Create application** -> **Pages** -> **Connect to Git**。
+3.  **关联仓库**: 选择你 Fork 后的 `MiPulse` 仓库。
+4.  **构建设置**:
+    - **Framework preset**: 保持 `None`。
+    - **Build command**: `npm run build`
+    - **Build output directory**: `dist`
+5.  **首次部署后配置资源**:
+    - 进入该项目的 **Settings -> Functions -> Bindings**。
+    - 在 **D1 database bindings** 中添加 `MIPULSE_DB`。
+    - 在 **KV namespace bindings** 中添加 `MIPULSE_KV`。
+    - 重新点击 **Deployments -> Retry deployment** 即可完成。
+
+### 2. 本地命令行部署 (全自动脚本)
+
+只需以下 6 步，即可自动在你的 Cloudflare 账户中完成所有资源创建与部署：
 
 ```bash
-# 将warngler更新到最新版
+# 1. 克隆仓库 (Fork 用户请替换为自己的 URL)
+git clone https://github.com/imzyb/MiPulse.git
+
+# 2. 进入项目目录
+cd MiPulse
+
+# 3. 将 wrangler 更新到最新版
 npm install wrangler@latest --save-dev
 
-# 确保已登录 Cloudflare
+# 4. 安装项目依赖
+npm install
+
+# 5. 登录 Cloudflare (会弹出浏览器)
 npx wrangler login
 
-# 执行全自动部署
+# 6. 执行全自动部署 (自动创建 D1/KV 并发布)
 npm run deploy:full
 ```
 
-#### 📌 一键部署填写指南 (Dashboard Guide)
-
-如果在点击上方按钮后进入 Cloudflare 部署界面，请按照以下几点填写：
-
-1.  **D1 / KV 数据库**：下拉列表中选择 **"+ Create (新建)"**，系统将自动为你创建并填入 ID。
-2.  **构建 & 部署命令**：保持默认即可（`npm run build` 和 `npm run deploy`）。
+---
 
 ### 2. 手动分步部署 (进阶)
 
