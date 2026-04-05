@@ -99,6 +99,10 @@ function writePublicNodesMemoryCache(payload) {
     };
 }
 
+function invalidatePublicNodesMemoryCache() {
+    publicNodesMemoryCache = null;
+}
+
 function readAdminNodesMemoryCache() {
     if (!adminNodesMemoryCache || adminNodesMemoryCache.expiresAt <= Date.now()) {
         adminNodesMemoryCache = null;
@@ -181,7 +185,7 @@ function shouldPersistNetworkSample(check, intervalMin) {
 }
 
 async function invalidatePublicNodesCache(kv, force = false) {
-    publicNodesMemoryCache = null;
+    invalidatePublicNodesMemoryCache();
     if (!kv) return;
     const now = Date.now();
     if (!force && now - lastPublicCacheInvalidationAt < KV_INVALIDATION_THROTTLE_MS) {
@@ -523,7 +527,7 @@ vps.post('/report', async (c) => {
         await db.batch(statements);
         invalidateAdminNodesCache();
         invalidateAlertsCache();
-        await invalidatePublicNodesCache(c.env.MIPULSE_KV);
+        invalidatePublicNodesMemoryCache();
         return c.json({ success: true, timestamp: reportedAt });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
