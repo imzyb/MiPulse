@@ -488,7 +488,7 @@ const handleResetConnection = async () => {
         </p>
       </template>
       <template #footer>
-        <button @click="handleDelete" :disabled="isDeletingNode" class="w-full py-4 rounded-xl bg-rose-500 text-white font-black uppercase tracking-widest transition-all">
+        <button @click="handleDelete" :disabled="isDeletingNode" class="admin-danger-btn w-full">
           {{ isDeletingNode ? '移除中...' : '确认销毁' }}
         </button>
       </template>

@@ -1,10 +1,217 @@
 import { Hono } from 'hono';
 
 const vps = new Hono();
+const PUBLIC_NODES_CACHE_KEY = 'cache:public_nodes';
+const PUBLIC_NODES_CACHE_TTL_SECONDS = 60;
+const PUBLIC_NODES_MEMORY_TTL_MS = 15 * 1000;
+const ADMIN_NODES_MEMORY_TTL_MS = 10 * 1000;
+const ALERTS_MEMORY_TTL_MS = 10 * 1000;
+const TARGETS_MEMORY_TTL_MS = 10 * 1000;
+const SETTINGS_CACHE_TTL_MS = 5 * 60 * 1000;
+const KV_INVALIDATION_THROTTLE_MS = 60 * 1000;
+
+let publicNodesMemoryCache = null;
+let adminNodesMemoryCache = null;
+let alertsMemoryCache = null;
+let monitorSettingsCache = null;
+let networkSettingsCache = null;
+let targetListMemoryCache = new Map();
+let recentNetworkSampleWrites = new Map();
+let lastPublicCacheInvalidationAt = 0;
 
 // --- Utilities ---
 function nowIso() { return new Date().toISOString(); }
 function isoFromMs(ms) { return new Date(ms).toISOString(); }
+
+function getNumericTrafficValue(value) {
+    const num = Number(value);
+    return Number.isFinite(num) && num >= 0 ? num : 0;
+}
+
+function computeTrafficDelta(currentValue, previousValue, hasPreviousReport) {
+    const current = getNumericTrafficValue(currentValue);
+    if (!hasPreviousReport) return 0;
+    const previous = getNumericTrafficValue(previousValue);
+    if (current >= previous) return current - previous;
+    return current;
+}
+
+function shouldStoreReport(reportedAt, lastSeenAt, reportStoreIntervalMinutes) {
+    if (!lastSeenAt) return true;
+    const intervalMinutes = Math.max(1, Number(reportStoreIntervalMinutes) || 5);
+    const deltaMs = new Date(reportedAt).getTime() - new Date(lastSeenAt).getTime();
+    if (!Number.isFinite(deltaMs) || deltaMs < 0) return true;
+    return deltaMs >= intervalMinutes * 60 * 1000;
+}
+
+async function getMonitorSettings(db) {
+    if (monitorSettingsCache && monitorSettingsCache.expiresAt > Date.now()) {
+        return monitorSettingsCache.value;
+    }
+    const rows = await db.prepare('SELECT key, value FROM settings WHERE key IN (?)')
+        .bind('vps_monitor_json')
+        .all();
+    const settings = rows.results?.[0]?.value
+        ? safeJsonParse(rows.results[0].value, {})
+        : {};
+    const value = {
+        reportStoreIntervalMinutes: Math.max(1, Number(settings.reportStoreIntervalMinutes) || 5)
+    };
+    monitorSettingsCache = {
+        value,
+        expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS
+    };
+    return value;
+}
+
+async function getNetworkSettings(db) {
+    if (networkSettingsCache && networkSettingsCache.expiresAt > Date.now()) {
+        return networkSettingsCache.value;
+    }
+    const rows = await db.prepare('SELECT key, value FROM settings WHERE key IN (?)')
+        .bind('network_monitor_json')
+        .all();
+    const settings = rows.results?.[0]?.value
+        ? safeJsonParse(rows.results[0].value, {})
+        : {};
+    const value = {
+        intervalMin: Math.max(1, Number(settings.intervalMin) || 5)
+    };
+    networkSettingsCache = {
+        value,
+        expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS
+    };
+    return value;
+}
+
+function readPublicNodesMemoryCache() {
+    if (!publicNodesMemoryCache || publicNodesMemoryCache.expiresAt <= Date.now()) {
+        publicNodesMemoryCache = null;
+        return null;
+    }
+    return publicNodesMemoryCache.payload;
+}
+
+function writePublicNodesMemoryCache(payload) {
+    publicNodesMemoryCache = {
+        payload,
+        expiresAt: Date.now() + PUBLIC_NODES_MEMORY_TTL_MS
+    };
+}
+
+function readAdminNodesMemoryCache() {
+    if (!adminNodesMemoryCache || adminNodesMemoryCache.expiresAt <= Date.now()) {
+        adminNodesMemoryCache = null;
+        return null;
+    }
+    return adminNodesMemoryCache.payload;
+}
+
+function writeAdminNodesMemoryCache(payload) {
+    adminNodesMemoryCache = {
+        payload,
+        expiresAt: Date.now() + ADMIN_NODES_MEMORY_TTL_MS
+    };
+}
+
+function invalidateAdminNodesCache() {
+    adminNodesMemoryCache = null;
+}
+
+function readAlertsMemoryCache() {
+    if (!alertsMemoryCache || alertsMemoryCache.expiresAt <= Date.now()) {
+        alertsMemoryCache = null;
+        return null;
+    }
+    return alertsMemoryCache.payload;
+}
+
+function writeAlertsMemoryCache(payload) {
+    alertsMemoryCache = {
+        payload,
+        expiresAt: Date.now() + ALERTS_MEMORY_TTL_MS
+    };
+}
+
+function invalidateAlertsCache() {
+    alertsMemoryCache = null;
+}
+
+function getTargetsCacheKey(nodeId) {
+    return nodeId === 'global' ? 'global' : (nodeId || '');
+}
+
+function readTargetsMemoryCache(nodeId) {
+    const key = getTargetsCacheKey(nodeId);
+    const entry = targetListMemoryCache.get(key);
+    if (!entry || entry.expiresAt <= Date.now()) {
+        targetListMemoryCache.delete(key);
+        return null;
+    }
+    return entry.payload;
+}
+
+function writeTargetsMemoryCache(nodeId, payload) {
+    targetListMemoryCache.set(getTargetsCacheKey(nodeId), {
+        payload,
+        expiresAt: Date.now() + TARGETS_MEMORY_TTL_MS
+    });
+}
+
+function invalidateTargetsCache(nodeId = null) {
+    if (!nodeId) {
+        targetListMemoryCache.clear();
+        return;
+    }
+    targetListMemoryCache.delete(getTargetsCacheKey(nodeId));
+}
+
+function shouldPersistNetworkSample(check, intervalMin) {
+    const nodeId = check.nodeId || '';
+    const targetId = check.targetId || '';
+    if (!nodeId || !targetId) return false;
+    const key = `${nodeId}:${targetId}`;
+    const checkedAt = new Date(check.checkedAt || nowIso()).getTime();
+    const currentAt = Number.isFinite(checkedAt) ? checkedAt : Date.now();
+    const cooldownMs = Math.max(1, Number(intervalMin) || 5) * 60 * 1000;
+    const lastAt = recentNetworkSampleWrites.get(key) || 0;
+    if (currentAt - lastAt < cooldownMs) return false;
+    recentNetworkSampleWrites.set(key, currentAt);
+    return true;
+}
+
+async function invalidatePublicNodesCache(kv, force = false) {
+    publicNodesMemoryCache = null;
+    if (!kv) return;
+    const now = Date.now();
+    if (!force && now - lastPublicCacheInvalidationAt < KV_INVALIDATION_THROTTLE_MS) {
+        return;
+    }
+    lastPublicCacheInvalidationAt = now;
+    try {
+        await kv.delete(PUBLIC_NODES_CACHE_KEY);
+    } catch {
+    }
+}
+
+function normalizeNodeList(rows) {
+    return rows.map((n) => ({
+        ...n,
+        enabled: !!n.enabled,
+        networkMonitorEnabled: !!n.networkMonitorEnabled,
+        latest: safeJsonParse(n.lastReport, null)
+    }));
+}
+
+function buildLatencyMapFromNodes(nodes) {
+    const latencyMap = {};
+    for (const node of nodes || []) {
+        const latest = safeJsonParse(node.lastReport, null);
+        const latency = Number(latest?.latencyMs);
+        latencyMap[node.id] = Number.isFinite(latency) && latency >= 0 ? [latency] : [];
+    }
+    return latencyMap;
+}
 
 export function normalizeReportTimestamp(rawValue, fallbackIso) {
     if (rawValue === null || rawValue === undefined) return fallbackIso;
@@ -232,8 +439,19 @@ function normalizeTargetListItem(target, latestSampleMap) {
 vps.get('/public', async (c) => {
     const db = c.env.MIPULSE_DB;
     const kv = c.env.MIPULSE_KV;
-    const cacheKey = 'cache:public_nodes';
-    if (kv) { try { const cached = await kv.get(cacheKey); if (cached) return c.json(JSON.parse(cached)); } catch (e) {} }
+    const memoryCached = readPublicNodesMemoryCache();
+    if (memoryCached) return c.json(memoryCached);
+    if (kv) {
+        try {
+            const cached = await kv.get(PUBLIC_NODES_CACHE_KEY);
+            if (cached) {
+                const payload = JSON.parse(cached);
+                writePublicNodesMemoryCache(payload);
+                return c.json(payload);
+            }
+        } catch {
+        }
+    }
     try {
         const { results: nodes } = await db.prepare(`SELECT id, name, region, country_code AS countryCode, status, last_seen_at AS lastSeenAt, tag, group_tag AS groupTag, last_report_json AS lastReport, total_rx AS totalRx, total_tx AS totalTx FROM vps_nodes WHERE enabled = 1 ORDER BY name ASC`).all();
         const { results: latencyRows } = await db.prepare(`SELECT node_id, CAST(json_extract(data, '$.latencyMs') AS FLOAT) as latencyMs, reported_at AS reportedAt FROM (SELECT node_id, data, reported_at, ROW_NUMBER() OVER(PARTITION BY node_id ORDER BY reported_at DESC) as rn FROM vps_reports WHERE reported_at > datetime('now', '-24 hours')) WHERE rn <= 20`).all();
@@ -250,7 +468,13 @@ vps.get('/public', async (c) => {
             theme: settings.theme_json || {},
             layout: settings.layout_json || {}
         };
-        if (kv) { try { await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: 60 }); } catch (e) {} }
+        writePublicNodesMemoryCache(result);
+        if (kv) {
+            try {
+                await kv.put(PUBLIC_NODES_CACHE_KEY, JSON.stringify(result), { expirationTtl: PUBLIC_NODES_CACHE_TTL_SECONDS });
+            } catch {
+            }
+        }
         return c.json(result);
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
@@ -269,9 +493,12 @@ vps.post('/report', async (c) => {
     if (node.secret !== secret) return c.json({ error: 'Invalid secret' }, 401);
     const reportedAt = normalizeReportTimestamp(report.ts || report.timestamp, nowIso());
     const lastRep = safeJsonParse(node.lastReport, {});
-    const rxDelta = Math.max(0, Number(report.traffic?.rx || 0) - Number(lastRep.traffic?.rx || 0));
-    const txDelta = Math.max(0, Number(report.traffic?.tx || 0) - Number(lastRep.traffic?.tx || 0));
+    const hasPreviousReport = !!node.lastSeenAt && !!node.lastReport;
+    const rxDelta = computeTrafficDelta(report.traffic?.rx, lastRep.traffic?.rx, hasPreviousReport);
+    const txDelta = computeTrafficDelta(report.traffic?.tx, lastRep.traffic?.tx, hasPreviousReport);
     const timeDelta = (new Date(reportedAt).getTime() - (node.lastSeenAt ? new Date(node.lastSeenAt).getTime() : 0)) / 1000;
+    const monitorSettings = await getMonitorSettings(db);
+    const storeDetailedReport = shouldStoreReport(reportedAt, node.lastSeenAt, monitorSettings.reportStoreIntervalMinutes);
     if (!report.traffic) report.traffic = { rx: 0, tx: 0 };
     report.traffic.rxSpeed = (timeDelta > 0 && timeDelta < 3600) ? rxDelta / timeDelta : 0;
     report.traffic.txSpeed = (timeDelta > 0 && timeDelta < 3600) ? txDelta / timeDelta : 0;
@@ -279,9 +506,11 @@ vps.post('/report', async (c) => {
     const country = c.req.header('cf-ipcountry') || c.req.raw.cf?.country || null;
     if (connectingIp) { if (!report.meta) report.meta = {}; report.meta.publicIp = connectingIp; }
     try {
-        await db.batch([
-            db.prepare(`UPDATE vps_nodes SET status = 'online', last_seen_at = ?, last_report_json = ?, total_rx = total_rx + ?, total_tx = total_tx + ?, country_code = COALESCE(?, country_code) WHERE id = ?`).bind(reportedAt, JSON.stringify(report), rxDelta, txDelta, country, node.id),
-            db.prepare(`INSERT INTO vps_reports (id, node_id, data, reported_at) VALUES (?, ?, ?, ?)`).bind(crypto.randomUUID(), node.id, JSON.stringify({ 
+        const statements = [
+            db.prepare(`UPDATE vps_nodes SET status = 'online', last_seen_at = ?, last_report_json = ?, total_rx = total_rx + ?, total_tx = total_tx + ?, country_code = COALESCE(?, country_code) WHERE id = ?`).bind(reportedAt, JSON.stringify(report), rxDelta, txDelta, country, node.id)
+        ];
+        if (storeDetailedReport) {
+            statements.push(db.prepare(`INSERT INTO vps_reports (id, node_id, data, reported_at) VALUES (?, ?, ?, ?)`).bind(crypto.randomUUID(), node.id, JSON.stringify({ 
                 cpuPercent: report.cpuPercent || 0, 
                 memPercent: report.memPercent || 0, 
                 diskPercent: report.diskPercent || 0, 
@@ -289,9 +518,12 @@ vps.post('/report', async (c) => {
                 latencyMs: report.latencyMs || 0,
                 lossPercent: report.lossPercent || 0,
                 checks: report.checks || []
-            }), reportedAt)
-        ]);
-        const kv = c.env.MIPULSE_KV; 
+            }), reportedAt));
+        }
+        await db.batch(statements);
+        invalidateAdminNodesCache();
+        invalidateAlertsCache();
+        await invalidatePublicNodesCache(c.env.MIPULSE_KV);
         return c.json({ success: true, timestamp: reportedAt });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
@@ -299,8 +531,13 @@ vps.post('/report', async (c) => {
 vps.get('/nodes', async (c) => {
     const db = c.env.MIPULSE_DB;
     try {
-        const { results } = await db.prepare('SELECT id, name, tag, group_tag AS groupTag, region, country_code AS countryCode, secret, status, enabled, network_monitor_enabled AS networkMonitorEnabled, last_report_json AS lastReport FROM vps_nodes ORDER BY name ASC').all();
-        return c.json({ success: true, data: results.map(n => ({ ...n, enabled: !!n.enabled, networkMonitorEnabled: !!n.networkMonitorEnabled, latest: safeJsonParse(n.lastReport, null) })), nodes: results.map(n => ({ ...n, enabled: !!n.enabled, networkMonitorEnabled: !!n.networkMonitorEnabled, latest: safeJsonParse(n.lastReport, null) })) });
+        const cached = readAdminNodesMemoryCache();
+        if (cached) return c.json(cached);
+        const { results } = await db.prepare('SELECT id, name, tag, group_tag AS groupTag, region, country_code AS countryCode, secret, status, enabled, network_monitor_enabled AS networkMonitorEnabled, last_report_json AS lastReport, total_rx AS totalRx, total_tx AS totalTx FROM vps_nodes ORDER BY name ASC').all();
+        const nodes = normalizeNodeList(results);
+        const payload = { success: true, data: nodes, nodes };
+        writeAdminNodesMemoryCache(payload);
+        return c.json(payload);
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
@@ -310,6 +547,8 @@ vps.post('/nodes', async (c) => {
     const id = crypto.randomUUID(); const secret = body.secret || generateUnambiguousSecret(12);
     try {
         await db.prepare('INSERT INTO vps_nodes (id, name, tag, group_tag, region, enabled, secret, status) VALUES (?, ?, ?, ?, ?, ?, ?, "offline")').bind(id, body.name, body.tag || '', body.groupTag || 'Default', body.region || 'Global', body.enabled ? 1 : 0, secret).run();
+        invalidateAdminNodesCache();
+        await invalidatePublicNodesCache(c.env.MIPULSE_KV, true);
         return c.json({ success: true, node: { id, secret }, guide: buildGuide(new URL(c.req.url).origin, id, secret) });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
@@ -329,19 +568,23 @@ vps.put('/nodes/:id', async (c) => {
     try {
         if (body.resetSecret) { const newSecret = generateUnambiguousSecret(12); await db.prepare("UPDATE vps_nodes SET secret = ?, updated_at = datetime('now') WHERE id = ?").bind(newSecret, id).run(); return c.json({ success: true, guide: buildGuide(apiOrigin, id, newSecret) }); }
         await db.prepare('UPDATE vps_nodes SET name = ?, tag = ?, group_tag = ?, region = ?, enabled = ?, secret = ?, network_monitor_enabled = ?, updated_at = datetime("now") WHERE id = ?').bind(body.name, body.tag || '', body.groupTag || 'Default', body.region || 'Global', body.enabled ? 1 : 0, body.secret, body.networkMonitorEnabled ? 1 : 0, id).run();
+        invalidateAdminNodesCache();
+        await invalidatePublicNodesCache(c.env.MIPULSE_KV, true);
         return c.json({ success: true, guide: buildGuide(apiOrigin, id, body.secret) });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
 vps.delete('/nodes/:id', async (c) => {
     const db = c.env.MIPULSE_DB; const id = c.req.param('id');
-    try { await db.batch([ db.prepare('DELETE FROM vps_nodes WHERE id = ?').bind(id), db.prepare('DELETE FROM vps_reports WHERE node_id = ?').bind(id), db.prepare('DELETE FROM vps_network_targets WHERE node_id = ?').bind(id) ]); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    try { await db.batch([ db.prepare('DELETE FROM vps_nodes WHERE id = ?').bind(id), db.prepare('DELETE FROM vps_reports WHERE node_id = ?').bind(id), db.prepare('DELETE FROM vps_network_targets WHERE node_id = ?').bind(id) ]); invalidateAdminNodesCache(); await invalidatePublicNodesCache(c.env.MIPULSE_KV, true); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
 vps.get('/targets', async (c) => {
     const db = c.env.MIPULSE_DB;
     try {
         const nodeId = c.req.query('nodeId');
+        const cached = readTargetsMemoryCache(nodeId);
+        if (cached) return c.json(cached);
         const { results } = await db.prepare('SELECT * FROM vps_network_targets WHERE node_id = ? ORDER BY created_at DESC').bind(nodeId).all();
         const { results: sampleRows } = await db.prepare('SELECT data FROM vps_network_samples WHERE node_id = ? ORDER BY reported_at DESC LIMIT 100').bind(nodeId === 'global' ? 'global' : nodeId).all();
         const latestSampleMap = {};
@@ -352,12 +595,14 @@ vps.get('/targets', async (c) => {
             }
         }
         const normalizedTargets = (results || []).map((target) => normalizeTargetListItem(target, latestSampleMap));
-        return c.json({ success: true, data: normalizedTargets, targets: normalizedTargets });
+        const payload = { success: true, data: normalizedTargets, targets: normalizedTargets };
+        writeTargetsMemoryCache(nodeId, payload);
+        return c.json(payload);
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
 vps.post('/targets', async (c) => {
-    const db = c.env.MIPULSE_DB; const body = await c.req.json(); try { await db.prepare('INSERT INTO vps_network_targets (id, node_id, type, target, name, enabled) VALUES (?, ?, ?, ?, ?, 1)').bind(crypto.randomUUID(), body.nodeId, body.type, body.target, body.name).run(); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    const db = c.env.MIPULSE_DB; const body = await c.req.json(); try { await db.prepare('INSERT INTO vps_network_targets (id, node_id, type, target, name, enabled) VALUES (?, ?, ?, ?, ?, 1)').bind(crypto.randomUUID(), body.nodeId, body.type, body.target, body.name).run(); invalidateTargetsCache(body.nodeId); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
 vps.put('/targets/:id', async (c) => {
@@ -379,12 +624,13 @@ vps.put('/targets/:id', async (c) => {
         await db.prepare('UPDATE vps_network_targets SET type = ?, target = ?, name = ?, scheme = ?, port = ?, path = ?, enabled = ?, updated_at = datetime("now") WHERE id = ?')
             .bind(next.type, next.target, next.name, next.scheme, next.port, next.path, next.enabled, id)
             .run();
+        invalidateTargetsCache(existing.node_id);
         return c.json({ success: true, data: { id, ...next, enabled: !!next.enabled } });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
 vps.delete('/targets/:id', async (c) => {
-    const db = c.env.MIPULSE_DB; try { await db.prepare('DELETE FROM vps_network_targets WHERE id = ?').bind(c.req.param('id')).run(); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    const db = c.env.MIPULSE_DB; try { const targetId = c.req.param('id'); const existing = await db.prepare('SELECT * FROM vps_network_targets WHERE id = ?').bind(targetId).first(); await db.prepare('DELETE FROM vps_network_targets WHERE id = ?').bind(targetId).run(); invalidateTargetsCache(existing?.node_id); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
 vps.post('/targets/check', async (c) => {
@@ -429,8 +675,12 @@ vps.post('/targets/check', async (c) => {
 vps.get('/alerts', async (c) => {
     const db = c.env.MIPULSE_DB;
     try {
+        const cached = readAlertsMemoryCache();
+        if (cached) return c.json(cached);
         const { results } = await db.prepare('SELECT id, node_id AS nodeId, type, message, created_at AS createdAt FROM vps_alerts ORDER BY created_at DESC LIMIT 100').all();
-        return c.json({ success: true, data: results, alerts: results });
+        const payload = { success: true, data: results, alerts: results };
+        writeAlertsMemoryCache(payload);
+        return c.json(payload);
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
@@ -438,6 +688,7 @@ vps.delete('/alerts', async (c) => {
     const db = c.env.MIPULSE_DB;
     try {
         await db.prepare('DELETE FROM vps_alerts').run();
+        invalidateAlertsCache();
         return c.json({ success: true, data: { cleared: true } });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
@@ -503,17 +754,22 @@ vps.post('/probe/check-results', async (c) => {
 
     const checks = Array.isArray(body?.checks) ? body.checks : [];
     try {
+        const networkSettings = await getNetworkSettings(db);
         const statements = [];
         for (const check of checks) {
             if (!check?.targetId) continue;
-            statements.push(
-                db.prepare('INSERT INTO vps_network_samples (id, node_id, reported_at, data) VALUES (?, ?, ?, ?)')
-                    .bind(crypto.randomUUID(), check.nodeId || node.id, nowIso(), JSON.stringify({ ...check, checkedAt: check.checkedAt || nowIso() }))
-            );
+            const normalizedCheck = { ...check, nodeId: check.nodeId || node.id, checkedAt: check.checkedAt || nowIso() };
+            if (shouldPersistNetworkSample(normalizedCheck, networkSettings.intervalMin)) {
+                statements.push(
+                    db.prepare('INSERT INTO vps_network_samples (id, node_id, reported_at, data) VALUES (?, ?, ?, ?)')
+                        .bind(crypto.randomUUID(), normalizedCheck.nodeId, nowIso(), JSON.stringify(normalizedCheck))
+                );
+            }
             statements.push(
                 db.prepare('UPDATE vps_network_targets SET force_check_at = NULL, updated_at = datetime("now") WHERE id = ?')
                     .bind(check.targetId)
             );
+            invalidateTargetsCache(normalizedCheck.nodeId);
         }
         if (statements.length) {
             await db.batch(statements);
@@ -580,7 +836,9 @@ vps.post('/settings', async (c) => {
         }); 
         await db.batch(queries); 
         // Invalidate public cache
-        const kv = c.env.MIPULSE_KV; if (kv) { await kv.delete('cache:public_nodes'); }
+        monitorSettingsCache = null;
+        networkSettingsCache = null;
+        await invalidatePublicNodesCache(c.env.MIPULSE_KV, true);
         return c.json({ success: true, data: normalizedBody, settings: normalizedBody }); 
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });

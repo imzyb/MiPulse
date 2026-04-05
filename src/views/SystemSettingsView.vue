@@ -174,7 +174,7 @@ onMounted(loadData);
       <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">Loading System Protocol...</span>
     </div>
 
-    <div v-else class="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div v-else class="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <section class="grid grid-cols-1 gap-6">
         <div class="admin-section-header">
           <div class="admin-title-wrap">
@@ -182,7 +182,7 @@ onMounted(loadData);
               <Bell :size="18" />
             </div>
             <div>
-              <h2 class="admin-title">Notification Settings</h2>
+              <h2 class="admin-title">通知设置</h2>
               <p class="admin-subtitle">配置告警通知推送渠道（Telegram / Webhook / PushPlus）。</p>
             </div>
           </div>
@@ -194,27 +194,39 @@ onMounted(loadData);
 
         <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div class="admin-panel xl:col-span-2 p-6 space-y-6">
-            <Switch v-model="config.notifications.enabled" label="启用通知推送" sublabel="总开关，关闭后不触发外部推送。" />
-            <Switch v-model="config.notifications.telegram.enabled" label="启用 Telegram 推送" sublabel="使用 Bot Token + Chat ID 发送告警。" />
-            <Switch v-model="config.notifications.webhook.enabled" label="启用 Webhook 推送" sublabel="将告警 POST 到指定 URL。" />
-            <Switch v-model="config.notifications.pushplus.enabled" label="启用 PushPlus 推送" sublabel="通过 PushPlus Token 发送测试通知。" />
+            <div class="admin-subsection">
+              <div>
+                <h3 class="admin-subsection-title">推送开关</h3>
+                <p class="admin-subsection-desc">先决定是否启用通知，再选择需要接入的推送渠道。</p>
+              </div>
+              <Switch v-model="config.notifications.enabled" label="启用通知推送" sublabel="总开关，关闭后不触发外部推送。" />
+              <Switch v-model="config.notifications.telegram.enabled" label="启用 Telegram 推送" sublabel="使用 Bot Token + Chat ID 发送告警。" />
+              <Switch v-model="config.notifications.webhook.enabled" label="启用 Webhook 推送" sublabel="将告警 POST 到指定 URL。" />
+              <Switch v-model="config.notifications.pushplus.enabled" label="启用 PushPlus 推送" sublabel="通过 PushPlus Token 发送测试通知。" />
+            </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-black/5 dark:border-white/5">
-              <div class="space-y-1">
-                <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Telegram Bot Token</label>
-                <input v-model="config.notifications.telegram.botToken" type="text" class="admin-input" />
+            <div class="admin-subsection">
+              <div>
+                <h3 class="admin-subsection-title">渠道凭据</h3>
+                <p class="admin-subsection-desc">只有对应渠道启用后，下面的凭据才会真正参与通知发送。</p>
               </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Telegram Chat ID</label>
-                <input v-model="config.notifications.telegram.chatId" type="text" class="admin-input" />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Webhook URL</label>
-                <input v-model="config.notifications.webhook.url" type="text" class="admin-input" />
-              </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">PushPlus Token</label>
-                <input v-model="config.notifications.pushplus.token" type="text" class="admin-input" />
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="admin-field">
+                  <label class="admin-label">Telegram Bot Token</label>
+                  <input v-model="config.notifications.telegram.botToken" type="text" class="admin-input" />
+                </div>
+                <div class="admin-field">
+                  <label class="admin-label">Telegram Chat ID</label>
+                  <input v-model="config.notifications.telegram.chatId" type="text" class="admin-input" />
+                </div>
+                <div class="admin-field">
+                  <label class="admin-label">Webhook URL</label>
+                  <input v-model="config.notifications.webhook.url" type="text" class="admin-input" />
+                </div>
+                <div class="admin-field">
+                  <label class="admin-label">PushPlus Token</label>
+                  <input v-model="config.notifications.pushplus.token" type="text" class="admin-input" />
+                </div>
               </div>
             </div>
 
@@ -225,8 +237,8 @@ onMounted(loadData);
               </button>
             </div>
           </div>
-          <div class="p-6 rounded-xl bg-gradient-to-br from-primary-500/10 to-blue-500/5 border border-primary-500/20 shadow-lg space-y-4">
-            <div class="text-xs font-black uppercase tracking-widest text-primary-500">通知提示</div>
+          <div class="admin-aside-card space-y-4">
+            <div class="admin-aside-title">通知提示</div>
             <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">建议至少开启一种通知渠道，避免重要告警遗漏。</p>
             <p class="text-xs text-gray-500">敏感字段仅用于发送通知，不会在公开页展示。</p>
           </div>
@@ -242,7 +254,7 @@ onMounted(loadData);
               <UserCog :size="18" />
             </div>
             <div>
-              <h2 class="admin-title">User Profile</h2>
+              <h2 class="admin-title">账户设置</h2>
               <p class="admin-subtitle">修改控制台登录用户名和密码。</p>
             </div>
           </div>
@@ -250,37 +262,49 @@ onMounted(loadData);
 
         <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div class="admin-panel xl:col-span-2 p-8 space-y-6">
-            <div class="space-y-1">
-              <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">当前用户名</label>
-              <input :value="profile.username" type="text" class="admin-input" disabled />
-            </div>
-            <div class="space-y-1">
-              <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">新用户名（可选）</label>
-              <input v-model="profile.newUsername" type="text" class="admin-input" />
-            </div>
-            <div class="space-y-1">
-              <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">当前密码（必填）</label>
-              <input v-model="profile.currentPassword" type="password" class="admin-input" />
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="space-y-1">
-                <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">新密码（可选）</label>
-                <input v-model="profile.newPassword" type="password" class="admin-input" />
+            <div class="admin-subsection">
+              <div>
+                <h3 class="admin-subsection-title">身份信息</h3>
+                <p class="admin-subsection-desc">修改后台登录名时，建议保持与实际用途一致，方便团队协作识别。</p>
               </div>
-              <div class="space-y-1">
-                <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">确认新密码</label>
-                <input v-model="profile.confirmPassword" type="password" class="admin-input" />
+              <div class="admin-field">
+                <label class="admin-label">当前用户名</label>
+                <input :value="profile.username" type="text" class="admin-input" disabled />
+              </div>
+              <div class="admin-field">
+                <label class="admin-label">新用户名（可选）</label>
+                <input v-model="profile.newUsername" type="text" class="admin-input" />
+              </div>
+            </div>
+            <div class="admin-subsection">
+              <div>
+                <h3 class="admin-subsection-title">安全校验</h3>
+                <p class="admin-subsection-desc">保存账户修改前，需要先输入当前密码完成身份校验。</p>
+              </div>
+              <div class="admin-field">
+                <label class="admin-label">当前密码（必填）</label>
+                <input v-model="profile.currentPassword" type="password" class="admin-input" />
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="admin-field">
+                  <label class="admin-label">新密码（可选）</label>
+                  <input v-model="profile.newPassword" type="password" class="admin-input" />
+                </div>
+                <div class="admin-field">
+                  <label class="admin-label">确认新密码</label>
+                  <input v-model="profile.confirmPassword" type="password" class="admin-input" />
+                </div>
               </div>
             </div>
 
             <button @click="handleSaveProfile" :disabled="isSavingProfile" class="admin-primary-btn px-10 py-4">
               <Save v-if="!isSavingProfile" :size="18" />
               <RefreshCw v-else :size="18" class="animate-spin" />
-              {{ isSavingProfile ? 'COMMITING...' : 'SAVE PROFILE' }}
+              {{ isSavingProfile ? '保存中...' : '保存账户设置' }}
             </button>
           </div>
-          <div class="p-6 rounded-xl bg-gradient-to-br from-primary-500/10 to-blue-500/5 border border-primary-500/20 shadow-lg space-y-4">
-            <div class="text-xs font-black uppercase tracking-widest text-primary-500">账号建议</div>
+          <div class="admin-aside-card space-y-4">
+            <div class="admin-aside-title">账号建议</div>
             <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">建议定期轮换密码并避免在多个系统复用同一密码。</p>
             <p class="text-xs text-gray-500">修改成功后会下发新 Token，无需重新登录。</p>
           </div>
@@ -295,7 +319,7 @@ onMounted(loadData);
         >
           <Save v-if="!isSaving" :size="18" />
           <RefreshCw v-else :size="18" class="animate-spin" />
-          {{ isSaving ? 'COMMITING...' : 'SAVE PROTOCOL' }}
+          {{ isSaving ? '保存中...' : '保存通知设置' }}
         </button>
       </div>
     </div>

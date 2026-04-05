@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, onUnmounted, ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { 
   Plus, RefreshCw, Settings, Trash2, Cpu, HardDrive, 
   ChevronRight, Gauge, Activity, Radio, AlertTriangle,
@@ -19,12 +20,14 @@ const nodes = ref([]);
 const alerts = ref([]);
 const isLoading = ref(false);
 const isRefreshing = ref(false);
+const router = useRouter();
 
 const refreshCountdown = ref(30);
 let refreshTimer = null;
 let countdownTimer = null;
 
 const showCreateModal = ref(false);
+const showEditModal = ref(false);
 const showDeleteModal = ref(false);
 const selectedNode = ref(null);
 
@@ -39,10 +42,10 @@ const formState = ref({
 
 const columns = [
   { key: 'name', title: '节点名称', sortable: true },
-  { key: 'groupTag', title: '分组', sortable: true },
+  { key: 'groupTag', title: '分组', sortable: true, hideOn: 'sm' },
   { key: 'status', title: '状态', align: 'center' },
-  { key: 'metrics', title: '资源利用' },
-  { key: 'lastSeenAt', title: '最后上报' },
+  { key: 'metrics', title: '资源利用', hideOn: 'md' },
+  { key: 'lastSeenAt', title: '最后上报', hideOn: 'md' },
   { key: 'actions', title: '操作', align: 'right' }
 ];
 
@@ -97,6 +100,32 @@ const openDelete = (node) => {
   showDeleteModal.value = true;
 };
 
+const openNodeSettings = (node) => {
+  selectedNode.value = node;
+  formState.value = {
+    name: node.name || '',
+    tag: node.tag || '',
+    groupTag: node.groupTag || 'Default',
+    region: node.region || '',
+    description: node.description || '',
+    enabled: node.enabled !== false,
+    secret: node.secret || '',
+    networkMonitorEnabled: node.networkMonitorEnabled !== false
+  };
+  showEditModal.value = true;
+};
+
+const handleUpdate = async () => {
+  if (!selectedNode.value) return;
+  await updateVpsNode(selectedNode.value.id, {
+    ...formState.value,
+    enabled: !!formState.value.enabled,
+    networkMonitorEnabled: !!formState.value.networkMonitorEnabled
+  });
+  showEditModal.value = false;
+  await loadData();
+};
+
 const formatTime = (iso) => {
   if (!iso) return '从未';
   return new Date(iso).toLocaleString();
@@ -107,47 +136,75 @@ const totalTraffic = computed(() => {
     return formatBytes(sum);
 });
 
-onMounted(loadData);
 </script>
 
 <template>
   <div class="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-    <!-- Stats Overview -->
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-      <div class="mipulse-card p-6 flex items-center gap-4 border-l-4 border-l-primary-500">
-        <div class="w-12 h-12 rounded-2xl bg-primary-100/50 dark:bg-primary-900/20 text-primary-600 flex items-center justify-center">
-          <Monitor :size="24" />
-        </div>
-        <div>
-          <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">节点总数</p>
-          <p class="text-2xl font-bold dark:text-white">{{ nodes.length }}</p>
-        </div>
-      </div>
-      <div class="mipulse-card p-6 flex items-center gap-4 border-l-4 border-l-emerald-500">
-        <div class="w-12 h-12 rounded-2xl bg-emerald-100/50 dark:bg-emerald-900/20 text-emerald-600 flex items-center justify-center">
-          <Radio :size="24" />
-        </div>
-        <div>
-          <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">在线节点</p>
-           <p class="text-2xl font-bold dark:text-white">{{ nodes.filter(n => n.status === 'online').length }}</p>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+      <div class="admin-stat-card">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="admin-stat-label">节点总数</p>
+            <p class="admin-stat-value">{{ nodes.length }}</p>
+            <p class="admin-stat-meta">当前接入后台的全部监测节点</p>
+          </div>
+          <div class="w-12 h-12 rounded-2xl bg-primary-100/70 dark:bg-primary-900/20 text-primary-600 flex items-center justify-center">
+            <Monitor :size="24" />
+          </div>
         </div>
       </div>
-      <div class="mipulse-card p-6 flex items-center gap-4 border-l-4 border-l-amber-500">
-        <div class="w-12 h-12 rounded-2xl bg-amber-100/50 dark:bg-amber-900/20 text-amber-600 flex items-center justify-center">
-          <Activity :size="24" />
-        </div>
-        <div>
-          <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">全球累计流量</p>
-          <p class="text-2xl font-bold dark:text-white">{{ totalTraffic }}</p>
+      <div class="admin-stat-card">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="admin-stat-label">在线节点</p>
+            <p class="admin-stat-value">{{ onlineCount }}</p>
+            <p class="admin-stat-meta">{{ nodes.length ? `${Math.round((onlineCount / nodes.length) * 100)}% 在线率` : '等待首个节点接入' }}</p>
+          </div>
+          <div class="w-12 h-12 rounded-2xl bg-emerald-100/70 dark:bg-emerald-900/20 text-emerald-600 flex items-center justify-center">
+            <Radio :size="24" />
+          </div>
         </div>
       </div>
-      <div class="mipulse-card p-6 flex items-center gap-4 border-l-4 border-l-rose-500">
-        <div class="w-12 h-12 rounded-2xl bg-rose-100/50 dark:bg-rose-900/20 text-rose-600 flex items-center justify-center">
-          <AlertTriangle :size="24" />
+      <div class="admin-stat-card">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="admin-stat-label">全球累计流量</p>
+            <p class="admin-stat-value">{{ totalTraffic }}</p>
+            <p class="admin-stat-meta">按节点累计接收与发送总量汇总</p>
+          </div>
+          <div class="w-12 h-12 rounded-2xl bg-amber-100/70 dark:bg-amber-900/20 text-amber-600 flex items-center justify-center">
+            <Activity :size="24" />
+          </div>
         </div>
-        <div>
-          <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">活动告警</p>
-          <p class="text-2xl font-bold dark:text-white">{{ alerts.length }}</p>
+      </div>
+      <div class="admin-stat-card">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="admin-stat-label">活动告警</p>
+            <p class="admin-stat-value">{{ alerts.length }}</p>
+            <p class="admin-stat-meta">{{ alerts.length ? '建议尽快检查并处理异常' : '当前没有需要处理的告警' }}</p>
+          </div>
+          <div class="w-12 h-12 rounded-2xl bg-rose-100/70 dark:bg-rose-900/20 text-rose-600 flex items-center justify-center">
+            <AlertTriangle :size="24" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="!nodes.length" class="admin-hero border border-dashed border-primary-500/20 bg-primary-500/[0.03]">
+      <div class="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+        <div class="space-y-3 max-w-2xl">
+          <p class="text-[11px] font-black uppercase tracking-[0.28em] text-primary-600">Getting Started</p>
+          <div>
+            <h2 class="text-2xl font-black tracking-tight text-gray-900 dark:text-white">还没有任何监测节点</h2>
+            <p class="mt-2 text-sm leading-6 text-gray-500 dark:text-gray-400">先创建一个节点，复制安装命令到服务器执行，几分钟后这里就会开始显示状态、流量和告警信息。</p>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-3">
+          <button @click="showCreateModal = true" class="admin-primary-btn">
+            <Plus :size="18" />
+            创建第一个节点
+          </button>
         </div>
       </div>
     </div>
@@ -204,7 +261,7 @@ onMounted(loadData);
 
           <template #column-actions="{ row }">
             <div class="flex items-center justify-end gap-2">
-              <button class="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-xl transition-all">
+              <button @click="openNodeSettings(row)" class="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-xl transition-all" title="查看节点详情">
                 <Settings :size="16" />
               </button>
               <button @click="openDelete(row)" class="p-2 text-gray-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all">
@@ -234,20 +291,20 @@ onMounted(loadData);
               </div>
               <div class="pb-6">
                 <p class="text-sm font-bold text-gray-900 dark:text-white mb-1 leading-tight">{{ alert.message }}</p>
-                <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">{{ formatTime(alert.created_at) }}</span>
+                <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">{{ formatTime(alert.createdAt) }}</span>
               </div>
             </div>
-            <div v-if="!alerts.length" class="text-center py-12">
+            <div v-if="!alerts.length" class="admin-empty-state">
               <div class="w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-900/10 text-emerald-500 flex items-center justify-center mx-auto mb-4">
                  <ShieldCheck :size="32" />
               </div>
-              <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">No Alerts Found</p>
-              <p class="text-[10px] text-gray-300 dark:text-gray-600 mt-1">All systems functional</p>
+              <p class="admin-empty-title">暂无告警</p>
+              <p class="admin-empty-subtitle">当前所有节点运行正常</p>
             </div>
           </div>
 
           <button v-if="alerts.length" @click="handleClearAlerts" class="w-full mt-6 py-3 border border-gray-100 dark:border-gray-800 rounded-2xl text-xs font-bold text-gray-400 hover:text-rose-500 transition-all uppercase tracking-widest">
-            Clear All Alerts
+            清空所有告警
           </button>
         </div>
       </div>
@@ -257,26 +314,67 @@ onMounted(loadData);
     <Modal v-model:show="showCreateModal" title="新增监控节点" size="md">
       <template #body>
         <div class="space-y-6">
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">节点名称</label>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="admin-field">
+              <label class="admin-label">节点名称</label>
               <input v-model="formState.name" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" placeholder="My-Node-01" />
+              <p class="admin-help">用于后台展示和识别节点，建议填写业务可读名称。</p>
             </div>
-            <div>
-              <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">分组标签</label>
+            <div class="admin-field">
+              <label class="admin-label">分组标签</label>
               <input v-model="formState.groupTag" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" placeholder="Default" />
             </div>
+            <div class="admin-field">
+              <label class="admin-label">节点标识</label>
+              <input v-model="formState.tag" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" placeholder="hk-prod-01" />
+            </div>
+            <div class="admin-field">
+              <label class="admin-label">区域</label>
+              <input v-model="formState.region" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" placeholder="Tokyo / Singapore" />
+            </div>
           </div>
-          <div>
-            <label class="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">描述信息</label>
+          <div class="admin-field">
+            <label class="admin-label">描述信息</label>
             <textarea v-model="formState.description" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" rows="3" placeholder="节点的详细描述..."></textarea>
           </div>
-          <Switch v-model="formState.enabled" label="启用监控" />
+          <Switch v-model="formState.enabled" label="启用监控" sublabel="关闭后节点仍会保留，但不会参与公开页展示和状态统计。" />
         </div>
       </template>
       <template #footer>
         <button @click="showCreateModal = false" class="px-6 py-3 text-gray-400 font-bold text-sm">取消</button>
         <button @click="handleCreate" class="px-8 py-3 bg-primary-600 text-white font-bold text-sm rounded-2xl shadow-lg shadow-primary-500/30">创建节点</button>
+      </template>
+    </Modal>
+
+    <Modal v-model:show="showEditModal" title="编辑节点" size="md">
+      <template #body>
+        <div class="space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="admin-field">
+              <label class="admin-label">节点名称</label>
+              <input v-model="formState.name" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" />
+            </div>
+            <div class="admin-field">
+              <label class="admin-label">分组标签</label>
+              <input v-model="formState.groupTag" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" />
+            </div>
+            <div class="admin-field">
+              <label class="admin-label">区域</label>
+              <input v-model="formState.region" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" />
+            </div>
+            <div class="admin-field">
+              <label class="admin-label">节点密钥</label>
+              <input v-model="formState.secret" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" />
+              <p class="admin-help">如需重装探针，可在这里直接替换节点密钥。</p>
+            </div>
+          </div>
+          <Switch v-model="formState.enabled" label="启用实时监控" sublabel="关闭后节点不会继续参与状态统计。" />
+          <Switch v-model="formState.networkMonitorEnabled" label="启用网络监测" sublabel="控制该节点是否执行 ICMP / TCP / HTTP 拨测任务。" />
+        </div>
+      </template>
+      <template #footer>
+        <button @click="showEditModal = false" class="px-6 py-3 text-gray-400 font-bold text-sm">取消</button>
+        <button @click="handleUpdate" class="px-8 py-3 bg-primary-600 text-white font-bold text-sm rounded-2xl shadow-lg shadow-primary-500/30">保存节点设置</button>
       </template>
     </Modal>
 
@@ -287,7 +385,7 @@ onMounted(loadData);
       </template>
       <template #footer>
         <button @click="showDeleteModal = false" class="px-6 py-3 text-gray-400 font-bold text-sm">取消</button>
-        <button @click="handleDelete" class="px-8 py-3 bg-rose-500 text-white font-bold text-sm rounded-2xl shadow-lg shadow-rose-500/30">确认删除</button>
+        <button @click="handleDelete" class="admin-danger-btn">确认删除</button>
       </template>
     </Modal>
   </div>

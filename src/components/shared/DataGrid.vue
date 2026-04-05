@@ -181,10 +181,10 @@ const handlePageChange = (page) => {
         <table :class="tableClasses">
           <thead v-if="showHeader" :class="headerClasses">
             <tr class="border-b border-gray-200 dark:border-gray-800">
-              <th v-if="selectable" :class="['px-6 text-left w-10', compact ? 'py-2' : 'py-4']">
+              <th v-if="selectable" :class="['px-4 sm:px-6 text-left w-10', compact ? 'py-2' : 'py-4']">
                 <input type="checkbox" :checked="selectedKeys.length === paginatedData.length && paginatedData.length > 0" :indeterminate="selectedKeys.length > 0 && selectedKeys.length < paginatedData.length" class="h-4 w-4 rounded border-gray-300 dark:border-gray-700 text-primary-600 focus:ring-primary-500" @change="toggleAllSelection" />
               </th>
-              <th v-for="column in columns" :key="column.key" :class="['px-6 text-left font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider', compact ? 'py-2 text-[10px]' : 'py-4 text-xs', column.align === 'center' ? 'text-center' : '', column.align === 'right' ? 'text-right' : '', column.sticky === 'right' ? 'sticky right-0 z-20 bg-gray-50/95 dark:bg-gray-900/95' : '', column.hideOn === 'sm' ? 'hidden sm:table-cell' : '', column.hideOn === 'md' ? 'hidden md:table-cell' : '', column.hideOn === 'lg' ? 'hidden lg:table-cell' : '']">
+               <th v-for="column in columns" :key="column.key" :class="['px-4 sm:px-6 text-left font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider', compact ? 'py-2 text-[10px]' : 'py-4 text-xs', column.align === 'center' ? 'text-center' : '', column.align === 'right' ? 'text-right' : '', column.sticky === 'right' ? 'sticky right-0 z-20 bg-gray-50/95 dark:bg-gray-900/95' : '', column.hideOn === 'sm' ? 'hidden sm:table-cell' : '', column.hideOn === 'md' ? 'hidden md:table-cell' : '', column.hideOn === 'lg' ? 'hidden lg:table-cell' : '']">
                 <div class="flex items-center space-x-1" :class="{'justify-center': column.align === 'center', 'justify-end': column.align === 'right'}">
                   <span>{{ column.title }}</span>
                   <button v-if="column.sortable" class="text-gray-400 hover:text-primary-500 transition-colors" @click="handleSort(column)">
@@ -198,7 +198,7 @@ const handlePageChange = (page) => {
           </thead>
           <tbody class="divide-y divide-gray-200/50 dark:divide-gray-800/50">
             <tr v-if="loading">
-              <td :colspan="columns.length + (selectable ? 1 : 0)" class="px-6 py-12 text-center text-gray-400">
+               <td :colspan="columns.length + (selectable ? 1 : 0)" class="px-4 sm:px-6 py-12 text-center text-gray-400">
                 <div class="flex items-center justify-center gap-2">
                   <div class="w-5 h-5 border-2 border-primary-500/30 border-t-primary-500 rounded-full animate-spin"></div>
                   <span>读取中...</span>
@@ -206,15 +206,15 @@ const handlePageChange = (page) => {
               </td>
             </tr>
             <tr v-else-if="paginatedData.length === 0">
-              <td :colspan="columns.length + (selectable ? 1 : 0)" class="px-6 py-12 text-center text-gray-400 italic">
+               <td :colspan="columns.length + (selectable ? 1 : 0)" class="px-4 sm:px-6 py-12 text-center text-gray-400 italic">
                 {{ emptyText }}
               </td>
             </tr>
             <tr v-else v-for="(row, index) in paginatedData" :key="row[rowKey]" :class="rowClasses(index)" @click="toggleRowSelection(row)" @dblclick="$emit('rowDblClick', row)">
-              <td v-if="selectable" class="px-6 py-4">
+               <td v-if="selectable" class="px-4 sm:px-6 py-4">
                 <input type="checkbox" :checked="isRowSelected(row)" class="h-4 w-4 rounded border-gray-300 dark:border-gray-700 text-primary-600 focus:ring-primary-500" @click.stop @change="toggleRowSelection(row)" />
               </td>
-              <td v-for="column in columns" :key="column.key" :class="['px-6 whitespace-nowrap text-gray-700 dark:text-gray-300 transition-all', column.align === 'center' ? 'text-center' : '', column.align === 'right' ? 'text-right' : '', compact ? 'py-1 text-xs' : 'py-4 text-sm', column.sticky === 'right' ? 'sticky right-0 z-10 bg-inherit backdrop-blur-sm' : '', column.hideOn === 'sm' ? 'hidden sm:table-cell' : '', column.hideOn === 'md' ? 'hidden md:table-cell' : '', column.hideOn === 'lg' ? 'hidden lg:table-cell' : '']">
+               <td v-for="column in columns" :key="column.key" :class="['px-4 sm:px-6 whitespace-nowrap text-gray-700 dark:text-gray-300 transition-all', column.align === 'center' ? 'text-center' : '', column.align === 'right' ? 'text-right' : '', compact ? 'py-1 text-xs' : 'py-4 text-sm', column.sticky === 'right' ? 'sticky right-0 z-10 bg-inherit backdrop-blur-sm' : '', column.hideOn === 'sm' ? 'hidden sm:table-cell' : '', column.hideOn === 'md' ? 'hidden md:table-cell' : '', column.hideOn === 'lg' ? 'hidden lg:table-cell' : '']">
                 <slot :name="`column-${column.key}`" :row="row" :column="column" :value="getColumnValue(row, column)">
                   {{ getColumnValue(row, column) }}
                 </slot>

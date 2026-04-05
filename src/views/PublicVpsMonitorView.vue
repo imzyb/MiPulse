@@ -64,13 +64,9 @@ const toggleExpand = (nodeId) => {
 };
 
 const handleNodeClick = (node) => {
-    if (viewMode.value === 'grid') {
-        selectedNodeForModal.value = node;
-        showNodeDetailModal.value = true;
-        loadNodeDetail(node.id);
-    } else {
-        toggleExpand(node.id);
-    }
+    selectedNodeForModal.value = node;
+    showNodeDetailModal.value = true;
+    loadNodeDetail(node.id);
 };
 
 const loadNodes = async (silent = false) => {
@@ -196,6 +192,21 @@ const tags = computed(() => {
     nodes.value.forEach(n => list.add(n.groupTag || 'Default'));
     return Array.from(list);
 });
+
+const hasActiveFilters = computed(() => activeTag.value !== 'All' || !!searchQuery.value.trim());
+
+const filterSummary = computed(() => {
+    if (!hasActiveFilters.value) return `展示全部 ${filteredNodes.value.length} 个节点`;
+    const parts = [];
+    if (searchQuery.value.trim()) parts.push(`关键词“${searchQuery.value.trim()}”`);
+    if (activeTag.value !== 'All') parts.push(`分组“${activeTag.value}”`);
+    return `当前筛选：${parts.join(' + ')}，共 ${filteredNodes.value.length} 个结果`;
+});
+
+const resetFilters = () => {
+    searchQuery.value = '';
+    activeTag.value = 'All';
+};
 
 const globalStats = computed(() => {
     let rxSpeed = 0, txSpeed = 0, rxTotal = 0, txTotal = 0;
@@ -434,35 +445,37 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                     <span v-else-if="isRefreshing">同步中...</span>
                     <span v-else>运行状态概览 · {{ refreshCountdown }}s</span>
                 </div>
-                <h1 class="text-4xl lg:text-6xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-b" :class="darkMode ? 'from-white to-white/40' : 'from-gray-900 to-gray-600'" :style="{ textShadow: darkMode ? '0 12px 40px rgba(0,0,0,0.35)' : 'none' }">
-                    <span v-if="theme.logo" class="inline-flex items-center gap-4">
+                <h1 class="max-w-4xl text-4xl lg:text-6xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-b break-words" :class="darkMode ? 'from-white to-white/40' : 'from-gray-900 to-gray-600'" :style="{ textShadow: darkMode ? '0 12px 40px rgba(0,0,0,0.35)' : 'none' }">
+                    <span v-if="theme.logo" class="inline-flex max-w-full items-center gap-4 align-top">
                       <img :src="theme.logo" alt="logo" class="h-12 w-12 lg:h-16 lg:w-16 rounded-[1.2rem] object-cover shadow-2xl ring-2 ring-white/10" />
-                      <span class="leading-tight">{{ theme.title || 'MiPulse' }}</span>
+                      <span class="leading-tight break-words">{{ theme.title || 'MiPulse' }}</span>
                     </span>
                     <span v-else>{{ theme.title || 'MiPulse' }}</span>
                 </h1>
-                <p class="text-base text-gray-500 font-medium max-w-lg leading-relaxed">
+                <p class="text-base text-gray-500 font-medium max-w-2xl leading-relaxed">
                     {{ theme.subtitle || 'Real-time monitoring of our global infrastructure. Transparency by default.' }}
                 </p>
             </div>
             
-            <div v-if="theme.showStats !== false" class="z-10 grid grid-cols-2 gap-3 w-auto">
+            <div v-if="theme.showStats !== false" class="z-10 grid w-full max-w-sm grid-cols-2 gap-3 lg:w-auto">
                  <div :class="['backdrop-blur-3xl rounded-xl p-3 lg:p-4 border transition-all flex flex-col justify-center min-w-[130px]', statsBg, cardBorder]" :style="{ boxShadow: darkMode ? '0 8px 30px rgba(0,0,0,0.3)' : '0 6px 20px rgba(0,0,0,0.04)' }">
-                     <div class="flex items-center justify-between mb-1">
-                        <div class="text-xl font-black" :style="{ color: 'var(--accent)' }">{{ onlineCount }} <span class="text-[10px] text-gray-500 font-bold">/ {{ totalCount }}</span></div>
-                        <Activity :size="14" class="opacity-20" />
-                     </div>
-                     <div class="text-[9px] font-black uppercase tracking-widest" :class="labelColor">节点在线</div>
-                     <div class="mt-1.5 h-1 w-full bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
-                        <div :style="{ width: `${onlineRate}%`, backgroundColor: 'var(--accent)' }" class="h-full transition-all"></div>
-                     </div>
+                      <div class="flex items-center justify-between mb-1">
+                         <div class="text-xl font-black" :style="{ color: 'var(--accent)' }">{{ onlineCount }} <span class="text-[10px] text-gray-500 font-bold">/ {{ totalCount }}</span></div>
+                         <Activity :size="14" class="opacity-20" />
+                      </div>
+                      <div class="text-[9px] font-black uppercase tracking-widest" :class="labelColor">节点在线</div>
+                      <div class="mt-1 text-[10px] font-medium text-gray-500">当前在线率 {{ onlineRate }}%</div>
+                      <div class="mt-1.5 h-1 w-full bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
+                         <div :style="{ width: `${onlineRate}%`, backgroundColor: 'var(--accent)' }" class="h-full transition-all"></div>
+                      </div>
                  </div>
                  <div :class="['backdrop-blur-3xl rounded-xl p-3 lg:p-4 border transition-all flex flex-col justify-center min-w-[130px]', statsBg, cardBorder]" :style="{ boxShadow: darkMode ? '0 8px 30px rgba(0,0,0,0.3)' : '0 6px 20px rgba(0,0,0,0.04)' }">
-                    <div class="text-2xl font-black flex items-baseline gap-0.5" :style="{ color: getHealthColor(onlineRate) }">
-                        {{ onlineRate }}<span class="text-[9px] opacity-50 font-black">%</span>
-                    </div>
-                    <div class="text-[9px] font-black uppercase tracking-widest" :class="labelColor">健康指数</div>
-                    <div class="mt-1.5 flex gap-0.5">
+                     <div class="text-2xl font-black flex items-baseline gap-0.5" :style="{ color: getHealthColor(onlineRate) }">
+                         {{ onlineRate }}<span class="text-[9px] opacity-50 font-black">%</span>
+                     </div>
+                     <div class="text-[9px] font-black uppercase tracking-widest" :class="labelColor">健康指数</div>
+                     <div class="mt-1 text-[10px] font-medium text-gray-500">{{ onlineRate >= 90 ? '运行稳定' : onlineRate >= 40 ? '存在波动' : '需尽快排查' }}</div>
+                     <div class="mt-1.5 flex gap-0.5">
                         <div v-for="i in 5" :key="i" class="h-1 flex-1 rounded-full transition-all duration-500" 
                              :style="{ 
                                backgroundColor: onlineRate >= (i * 20) ? getHealthColor(onlineRate) : dividerColor 
@@ -474,20 +487,26 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
 
         <div v-if="nodes.length" class="mb-10 flex flex-col sm:flex-row gap-6 justify-between items-start sm:items-center">
             <!-- TAG FILTERS -->
-            <div class="flex flex-wrap gap-2">
-                <button 
-                    v-for="tag in tags" 
-                    :key="tag" 
-                    @click="activeTag = tag"
-                    :class="[
-                      'px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border',
-                      activeTag === tag 
-                        ? (darkMode ? 'bg-white/10 border-white/30 text-white' : 'bg-slate-900 border-slate-900 text-white')
-                        : (darkMode ? 'bg-white/[0.03] border-white/5 text-gray-500 hover:text-gray-300' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50')
-                    ]"
-                >
-                    {{ tag }}
-                </button>
+            <div class="space-y-3 w-full sm:w-auto">
+                <div class="flex flex-wrap items-center gap-2">
+                    <button 
+                        v-for="tag in tags" 
+                        :key="tag" 
+                        @click="activeTag = tag"
+                        :class="[
+                          'px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border',
+                          activeTag === tag 
+                            ? (darkMode ? 'bg-white/10 border-white/30 text-white' : 'bg-slate-900 border-slate-900 text-white')
+                            : (darkMode ? 'bg-white/[0.03] border-white/5 text-gray-500 hover:text-gray-300' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50')
+                        ]"
+                    >
+                        {{ tag }}
+                    </button>
+                    <button v-if="hasActiveFilters" @click="resetFilters" class="px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border" :class="darkMode ? 'bg-rose-500/10 border-rose-500/20 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-600'">
+                        重置筛选
+                    </button>
+                </div>
+                <p class="text-[11px] font-medium text-gray-500 dark:text-gray-400">{{ filterSummary }}</p>
             </div>
 
             <!-- VIEW CONTROLS -->
@@ -569,23 +588,23 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                     <div class="flex flex-col">
                                         <div class="flex items-center gap-2">
                                             <Cpu :size="12" class="opacity-40" />
-                                            <span class="text-[10px] font-black uppercase tracking-widest opacity-40">{{ node.tag || 'NODE' }}</span>
+                                            <span class="text-[10px] font-black uppercase tracking-widest opacity-40">{{ node.tag || '节点' }}</span>
                                         </div>
                                         <h3 class="text-2xl font-black tracking-tight leading-none mt-1">{{ node.name }}</h3>
                                     </div>
                                 </div>
                                 <!-- Badges Area -->
-                                <div class="flex items-center gap-2 mt-4">
-                                    <template v-if="node.latest?.lossPercent > 0">
-                                        <span class="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-500 text-[10px] font-black border border-rose-500/20 animate-pulse">
-                                            {{ node.latest.lossPercent }}% LOSS
-                                        </span>
-                                    </template>
-                                    <template v-else-if="getLatencyPoints(node.id).length > 0 && getLatencyPoints(node.id)[0] !== null">
-                                        <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20">
-                                            {{ getLatencyPoints(node.id)[0] }}ms
-                                        </span>
-                                    </template>
+                                <div class="flex flex-wrap items-center gap-2 mt-4">
+                                    <span class="px-2 py-0.5 rounded-md text-[10px] font-black border"
+                                        :class="node.status === 'online' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'">
+                                        {{ node.status === 'online' ? '在线运行' : '当前离线' }}
+                                    </span>
+                                    <span v-if="getLatencyPoints(node.id).length > 0 && getLatencyPoints(node.id)[0] !== null" class="px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-500 text-[10px] font-bold border border-cyan-500/20">
+                                        延迟 {{ getLatencyPoints(node.id)[0] }}ms
+                                    </span>
+                                    <span v-if="node.latest?.lossPercent > 0" class="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-500 text-[10px] font-black border border-rose-500/20 animate-pulse">
+                                        {{ node.latest.lossPercent }}% 丢包
+                                    </span>
                                 </div>
                             </div>
                             <div class="relative w-3 h-3">
@@ -634,10 +653,9 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                             </div>
                         </div>
 
-                        <!-- LIST MODE ALTERNATIVE (NEZHA STYLE + MiPulse Unique) -->
+                        <!-- LIST MODE -->
                         <template v-if="viewMode === 'list'">
-                          <div class="w-full grid grid-cols-12 gap-4 items-center">
-                            <!-- Column 1-3: Identity & Uptime -->
+                          <div class="w-full flex flex-col gap-4 md:grid md:grid-cols-12 md:gap-4 md:items-center">
                             <div class="col-span-12 md:col-span-3 flex items-center gap-3">
                                 <div class="relative">
                                     <div class="w-10 h-10 rounded-2xl flex items-center justify-center text-sm shadow-inner overflow-hidden" :class="darkMode ? 'bg-white/5' : 'bg-slate-100'" :style="{ color: 'var(--accent)' }">
@@ -651,7 +669,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 <div class="flex flex-col min-w-0">
                                     <div class="flex items-center gap-2">
                                         <h4 class="text-sm font-black truncate tracking-tight">{{ node.name }}</h4>
-                                        <span class="text-[9px] px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/5 border opacity-60" :style="{ borderColor: dividerColor }">{{ node.region || 'GLB' }}</span>
+                                        <span class="text-[9px] px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/5 border opacity-60" :style="{ borderColor: dividerColor }">{{ node.region || '全球' }}</span>
                                     </div>
                                     <div class="flex items-center gap-2 mt-0.5">
                                         <Clock :size="10" class="opacity-30" />
@@ -660,14 +678,18 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 </div>
                             </div>
 
-                            <!-- Column 4: System / Load -->
+                            <div class="flex md:hidden items-center justify-between gap-3 text-[10px] font-mono font-black">
+                                <span class="px-2 py-1 rounded-full border" :style="{ borderColor: dividerColor }">{{ node.region || '全球' }}</span>
+                                <span :class="getLoadColor(node.latest?.load1, node.latest?.cpu?.cores)">负载 {{ node.latest?.load1 || '0.0' }}</span>
+                                <span class="opacity-60">总流量 {{ formatBytes((node.totalRx || 0) + (node.totalTx || 0)) }}</span>
+                            </div>
+
                             <div class="hidden md:flex col-span-1 flex-col gap-0.5 text-center px-2">
-                                <span class="text-[9px] font-black opacity-30 uppercase tracking-widest">Load</span>
+                                <span class="text-[9px] font-black opacity-30 uppercase tracking-widest">负载</span>
                                 <span class="font-mono text-xs font-black" :class="getLoadColor(node.latest?.load1, node.latest?.cpu?.cores)">{{ node.latest?.load1 || '0.0' }}</span>
                             </div>
 
-                            <!-- Column 5-8: Resource Bars -->
-                            <div class="col-span-12 md:col-span-4 grid grid-cols-3 gap-6 px-4 border-x" :style="{ borderColor: dividerColor }">
+                            <div class="col-span-12 md:col-span-4 grid grid-cols-3 gap-4 md:gap-6 px-0 md:px-4 md:border-x" :style="{ borderColor: dividerColor }">
                                 <div class="flex flex-col gap-1.5">
                                     <div class="flex justify-between text-[9px] font-black uppercase tracking-tighter opacity-50">
                                         <span>CPU</span>
@@ -697,31 +719,29 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 </div>
                             </div>
 
-                            <!-- Column 9-10: Network Speed (Real-time Delta) -->
-                            <div class="col-span-12 md:col-span-2 flex flex-col justify-center px-4">
+                            <div class="col-span-12 md:col-span-2 flex flex-col justify-center px-0 md:px-4">
                                 <div class="flex flex-col font-mono font-black">
                                     <div class="flex items-center justify-between text-emerald-500">
-                                        <div class="flex items-center gap-1"><ArrowUp :size="10" /> <span class="text-[8px] opacity-50">UP</span></div>
+                                        <div class="flex items-center gap-1"><ArrowUp :size="10" /> <span class="text-[8px] opacity-50">上传</span></div>
                                         <span class="text-[11px]">{{ formatNetworkSpeed(node.latest?.traffic?.txSpeed || 0) }}</span>
                                     </div>
                                     <div class="flex items-center justify-between text-indigo-500 mt-0.5">
-                                        <div class="flex items-center gap-1"><ArrowDown :size="10" /> <span class="text-[8px] opacity-50">DOWN</span></div>
+                                        <div class="flex items-center gap-1"><ArrowDown :size="10" /> <span class="text-[8px] opacity-50">下载</span></div>
                                         <span class="text-[11px]">{{ formatNetworkSpeed(node.latest?.traffic?.rxSpeed || 0) }}</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Column 11-12: Cumulative Stats & Quality -->
-                            <div class="col-span-12 md:col-span-2 flex flex-col justify-center pl-4 border-l" :style="{ borderColor: dividerColor }">
+                            <div class="col-span-12 md:col-span-2 flex flex-col justify-center pl-0 md:pl-4 md:border-l" :style="{ borderColor: dividerColor }">
                                 <div class="flex justify-between items-center text-[10px] font-mono font-black">
-                                    <span class="opacity-30 uppercase tracking-widest text-[8px]">Usage</span>
+                                    <span class="opacity-30 uppercase tracking-widest text-[8px]">累计流量</span>
                                     <span class="opacity-60">{{ formatBytes((node.totalRx || 0) + (node.totalTx || 0)) }}</span>
                                 </div>
                                 <div class="flex justify-between items-center mt-1 text-[10px] font-mono font-black">
-                                    <span class="opacity-30 uppercase tracking-widest text-[8px]">Network</span>
+                                    <span class="opacity-30 uppercase tracking-widest text-[8px]">网络质量</span>
                                     <div class="flex items-center gap-2">
                                         <span v-if="node.latest?.lossPercent > 0" class="text-rose-500 text-[9px] font-black animate-pulse">
-                                            {{ node.latest.lossPercent === 100 ? 'TIMEOUT' : node.latest.lossPercent + '% LOSS' }}
+                                            {{ node.latest.lossPercent === 100 ? '超时' : node.latest.lossPercent + '% 丢包' }}
                                         </span>
                                         <span class="text-emerald-500" v-else-if="getLatencyPoints(node.id).length > 0 && getLatencyPoints(node.id)[0] !== null">
                                             {{ getLatencyPoints(node.id)[0] }}ms
@@ -758,7 +778,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 </div>
                                 <div class="space-y-1.5 font-mono">
                                     <div class="flex justify-between items-center text-[11px]">
-                                        <span class="opacity-50 tracking-tighter">Load Average</span>
+                                        <span class="opacity-50 tracking-tighter">平均负载</span>
                                         <div class="flex gap-1.5">
                                             <span :class="getLoadColor(node.latest?.load1, node.latest?.cpu?.cores)">{{ node.latest?.load1 || '0.0' }}</span>
                                         </div>
@@ -771,78 +791,33 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                             </div>
                         </div>
 
-                        <!-- EXPANDED CONTENT AREA -->
-                        <transition name="expand">
-                          <div v-show="expandedNodes.has(node.id)" class="w-full pt-5 mt-5 border-t" :style="{ borderColor: dividerColor }">
-                            <div class="space-y-4">
-                              <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-2">
-                                  <Activity :size="14" :style="{ color: 'var(--accent)' }" />
-                                  <span class="text-xs font-black">网络延迟趋势</span>
-                                  <span v-if="node.status === 'offline'" class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-rose-500/20 text-rose-400">DISCONNECTED</span>
-                                </div>
-                                <div class="flex items-center gap-3 text-[10px] font-mono opacity-50">
-                                  <span v-if="node.latest?.timestamp">最后同步: {{ new Date(node.latest.timestamp).toLocaleString() }}</span>
-                                </div>
-                              </div>
-                              <!-- 多协议曲线图区域 (v1.5.8 支持多线合一) -->
-                              <div :class="['rounded-xl border overflow-hidden', darkMode ? 'bg-black/20' : 'bg-slate-50/80 shadow-inner']" :style="{ borderColor: dividerColor }">
-                                <template v-if="Object.keys(getLatencyByProtocol(node.id)).length">
-                                  <div v-for="(proto, type) in getLatencyByProtocol(node.id)" :key="type" class="px-1 py-1">
-                                    <VpsMetricChart
-                                      :title="`${type} 网络延迟`"
-                                      unit="ms"
-                                      :series="proto.series"
-                                      :labels="proto.timestamps"
-                                      :height="280"
-                                      :darkMode="darkMode"
-                                      class="!border-none !bg-transparent !shadow-none !backdrop-blur-none py-4"
-                                    />
-                                  </div>
-                                </template>
-                                <template v-else>
-                                  <VpsMetricChart
-                                    title="NETWORK LATENCY"
-                                    unit="ms"
-                                    :points="getLatencyPoints(node.id)"
-                                    color="var(--accent)"
-                                    :height="280"
-                                    :darkMode="darkMode"
-                                    class="!border-none !bg-transparent !shadow-none !backdrop-blur-none"
-                                  />
-                                </template>
-                              </div>
-                              <!-- 底部摘要栏 (仅列表模式显示以节省空间) -->
-                              <div v-if="viewMode === 'list'" class="flex flex-wrap gap-6 items-center text-[10px] font-mono opacity-50">
-                                <span v-if="node.latest?.meta?.os" class="flex items-center gap-1"><Cpu :size="11" />{{ node.latest.meta.os }}</span>
-                                <span class="flex items-center gap-1"><Clock :size="11" />{{ formatUptime(node.latest?.uptimeSec || 0) }}</span>
-                                <span class="flex items-center gap-1"><HardDrive :size="11" />{{ getMetricValue(node, 'disk') }}% DISK</span>
-                              </div>
-                            </div>
-                          </div>
-                        </transition>
+                        <div v-if="viewMode === 'list'" class="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest opacity-50">
+                            <span>点击查看节点详情</span>
+                            <ChevronDown :size="14" />
+                        </div>
                     </div>
             </div>
 
-            <div v-if="filteredNodes.length === 0" class="text-center py-16">
+            <div v-if="filteredNodes.length === 0" class="flex flex-col items-center justify-center py-16 text-center space-y-4">
                 <Search :size="48" class="mx-auto mb-4 text-gray-600" />
                 <p class="text-lg font-black text-gray-600">未找到匹配的节点</p>
-                <p class="text-sm text-gray-500">请尝试其他搜索词</p>
+                <p class="text-sm text-gray-500">请尝试其他搜索词，或清空搜索与分组筛选后重试。</p>
+                <button @click="searchQuery = ''; activeTag = 'All'" class="px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all" :style="{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }">
+                    清除筛选
+                </button>
             </div>
         </div>
 
-        <div v-else class="text-center py-40 border-2 border-dashed border-white/5 rounded-[3rem]">
-            <div class="text-3xl mb-4 font-black text-gray-800 uppercase tracking-widest opacity-20">暂无节点</div>
-            <p class="text-gray-600 font-medium uppercase tracking-widest text-xs">等待全球集群接入中...</p>
+        <div v-else class="flex flex-col items-center justify-center py-24 px-6 text-center rounded-[3rem] border border-dashed" :style="{ borderColor: dividerColor, backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.5)' }">
+            <div class="w-16 h-16 rounded-3xl flex items-center justify-center mb-6" :style="{ backgroundColor: 'var(--accent-soft)' }">
+                <Server :size="30" :style="{ color: 'var(--accent)' }" />
+            </div>
+            <div class="text-2xl mb-3 font-black tracking-tight">公开页暂时还没有节点</div>
+            <p class="max-w-xl text-sm leading-6 text-gray-500">管理员完成节点接入后，这里会自动显示全球节点状态、资源占用和网络质量信息。</p>
         </div>
 
         <footer v-if="layout.footerEnabled" class="mt-32 pt-12 border-t flex flex-col md:flex-row justify-between items-center gap-8" :style="{ borderColor: dividerColor }">
-            <p class="text-gray-600 text-xs font-bold uppercase tracking-[0.2em]">{{ theme.footerText || 'Powered by MiPulse Monitoring System' }}</p>
-            <div class="flex items-center gap-6">
-                 <a href="#" class="text-gray-500 hover:text-white transition-colors uppercase text-[10px] font-black tracking-widest">Network Map</a>
-                 <a href="#" class="text-gray-500 hover:text-white transition-colors uppercase text-[10px] font-black tracking-widest">API v1</a>
-                 <a href="#" class="text-gray-500 hover:text-white transition-colors uppercase text-[10px] font-black tracking-widest">Incident History</a>
-            </div>
+            <p class="text-gray-600 text-xs font-bold uppercase tracking-[0.2em]">{{ theme.footerText || '由 MiPulse 监控系统提供支持' }}</p>
         </footer>
 
         <!-- Detail Modal [Suggestion 3] -->
@@ -857,7 +832,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                         <h3 class="text-xl font-black tracking-tight">{{ selectedNodeForModal?.name }}</h3>
                         <div class="flex items-center gap-2">
                              <div class="w-1.5 h-1.5 rounded-full" :class="selectedNodeForModal?.status === 'online' ? 'bg-emerald-500' : 'bg-rose-500'"></div>
-                             <span class="text-[10px] font-black uppercase tracking-widest opacity-40">{{ selectedNodeForModal?.status === 'online' ? 'Online' : 'Offline' }}</span>
+                             <span class="text-[10px] font-black uppercase tracking-widest opacity-40">{{ selectedNodeForModal?.status === 'online' ? '在线' : '离线' }}</span>
                         </div>
                     </div>
                 </div>
@@ -869,26 +844,26 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                         <div class="p-4 rounded-2xl border flex flex-col gap-1" :style="{ borderColor: dividerColor, backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.5)' }">
                             <div class="flex items-center gap-2 opacity-40">
                                 <Cpu :size="12" />
-                                <span class="text-[9px] font-black uppercase tracking-widest">OS / Kernel</span>
+                                <span class="text-[9px] font-black uppercase tracking-widest">系统 / 内核</span>
                             </div>
                             <div class="text-[11px] font-bold truncate">{{ selectedNodeForModal.latest?.meta?.os || 'Linux' }}</div>
-                            <div class="text-[9px] opacity-40 truncate">{{ selectedNodeForModal.latest?.meta?.kernel || 'Unknown Kernel' }}</div>
+                            <div class="text-[9px] opacity-40 truncate">{{ selectedNodeForModal.latest?.meta?.kernel || '未知内核' }}</div>
                         </div>
                         <div class="p-4 rounded-2xl border flex flex-col gap-1" :style="{ borderColor: dividerColor, backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.5)' }">
                             <div class="flex items-center gap-2 opacity-40">
                                 <Clock :size="12" />
-                                <span class="text-[9px] font-black uppercase tracking-widest">Uptime</span>
+                                <span class="text-[9px] font-black uppercase tracking-widest">运行时长</span>
                             </div>
                             <div class="text-[11px] font-bold">{{ formatUptime(selectedNodeForModal.latest?.uptimeSec || 0) }}</div>
-                            <div class="text-[9px] opacity-40">Since Last Boot</div>
+                            <div class="text-[9px] opacity-40">自最近一次启动以来</div>
                         </div>
                         <div class="p-4 rounded-2xl border flex flex-col gap-1" :style="{ borderColor: dividerColor, backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.5)' }">
                             <div class="flex items-center gap-2 opacity-40">
                                 <Network :size="12" />
-                                <span class="text-[9px] font-black uppercase tracking-widest">Region / IP</span>
+                                <span class="text-[9px] font-black uppercase tracking-widest">区域 / IP</span>
                             </div>
-                            <div class="text-[11px] font-bold">{{ selectedNodeForModal.region || 'Global' }}</div>
-                            <div class="text-[9px] opacity-40">{{ selectedNodeForModal.latest?.publicIp || 'Protected IP' }}</div>
+                            <div class="text-[11px] font-bold">{{ selectedNodeForModal.region || '全球' }}</div>
+                            <div class="text-[9px] opacity-40">{{ selectedNodeForModal.latest?.publicIp || '已隐藏 IP' }}</div>
                         </div>
                         <div class="p-4 rounded-2xl border flex flex-col gap-2" :style="{ borderColor: dividerColor, backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.5)' }">
                             <div class="flex items-center gap-2 opacity-40">
@@ -916,7 +891,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                     <!-- Charts Section -->
                     <div class="space-y-6">
                         <div class="flex items-center gap-4">
-                            <h4 class="text-sm font-black uppercase tracking-widest">Latency Analysis</h4>
+                            <h4 class="text-sm font-black uppercase tracking-widest">延迟分析</h4>
                             <div class="h-px flex-1" :style="{ backgroundColor: dividerColor }"></div>
                         </div>
                         <div class="space-y-4">
@@ -935,17 +910,17 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                              </template>
                              <div v-else class="py-20 text-center opacity-30">
                                 <Activity :size="48" class="mx-auto mb-4" />
-                                <p class="text-xs font-black uppercase tracking-widest">No detailed history available</p>
-                             </div>
+                                <p class="text-xs font-black uppercase tracking-widest">暂无详细历史数据</p>
+                            </div>
                         </div>
                     </div>
                 </div>
             </template>
             <template #footer>
                 <div class="w-full flex items-center justify-between">
-                    <span class="text-[10px] font-mono opacity-40 uppercase">Last Sync: {{ selectedNodeForModal?.latest?.timestamp ? new Date(selectedNodeForModal.latest.timestamp).toLocaleString() : 'N/A' }}</span>
+                    <span class="text-[10px] font-mono opacity-40 uppercase">最后同步：{{ selectedNodeForModal?.latest?.timestamp ? new Date(selectedNodeForModal.latest.timestamp).toLocaleString() : '暂无' }}</span>
                     <button @click="showNodeDetailModal = false" class="px-8 py-2.5 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-black font-black text-xs uppercase tracking-widest transition-all hover:scale-105 active:scale-95 shadow-xl">
-                        Close Report
+                        关闭详情
                     </button>
                 </div>
             </template>
@@ -955,9 +930,6 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
 </template>
 
 <style scoped>
-.expand-enter-active, .expand-leave-active { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); max-height: 1000px; opacity: 1; overflow: hidden; }
-.expand-enter-from, .expand-leave-to { max-height: 0; opacity: 0; transform: translateY(-10px); }
-
 /* Skeleton Styles [Suggestion 1] */
 .skeleton { position: relative; overflow: hidden; background: rgba(156, 163, 175, 0.1); border-radius: 0.8rem; }
 .skeleton::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; left: 0; transform: translateX(-100%); background-image: linear-gradient(90deg, rgba(255,255,255,0) 0, rgba(255,255,255,0.05) 20%, rgba(255,255,255,0.1) 60%, rgba(255,255,255,0)); animation: shimmer 2s infinite; }
@@ -968,11 +940,5 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
 @media (max-width: 640px) {
     .grid { gap: 1rem !important; }
     .rounded-\[2rem\] { border-radius: 1.5rem !important; }
-}
-
-.node-expand-container {
-    min-height: 420px !important;
-    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow: visible !important;
 }
 </style>

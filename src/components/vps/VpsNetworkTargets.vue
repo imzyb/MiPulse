@@ -174,7 +174,7 @@ const supportsCheck = computed(() => props.allowCheck);
         </div>
         <div>
           <h4 class="text-base font-bold text-gray-900 dark:text-white">网络监测目标</h4>
-          <p class="text-xs font-medium text-gray-500/70">支持深度 ICMP / TCP / HTTP 拨测分析</p>
+          <p class="text-xs font-medium text-gray-500/70">支持 ICMP / TCP / HTTP 三类拨测目标</p>
         </div>
       </div>
       <div class="px-3 py-1 rounded-full bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 text-[10px] font-bold text-gray-400">
@@ -288,11 +288,11 @@ const supportsCheck = computed(() => props.allowCheck);
       <div class="relative rounded-lg p-5 border border-black/5 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02]">
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div class="space-y-1">
-            <label class="text-[10px] font-bold text-gray-500 ml-1 uppercase">Name</label>
-            <input v-model="formState.name" placeholder="Optional name" class="w-full px-4 py-2.5 text-xs bg-white dark:bg-black/20 border border-black/5 dark:border-white/5 rounded-lg focus:ring-2 focus:ring-primary-500/50 outline-none transition-all" />
+            <label class="text-[10px] font-bold text-gray-500 ml-1 uppercase">名称</label>
+            <input v-model="formState.name" placeholder="可选名称" class="w-full px-4 py-2.5 text-xs bg-white dark:bg-black/20 border border-black/5 dark:border-white/5 rounded-lg focus:ring-2 focus:ring-primary-500/50 outline-none transition-all" />
           </div>
           <div class="space-y-1">
-            <label class="text-[10px] font-bold text-gray-500 ml-1 uppercase">Type</label>
+            <label class="text-[10px] font-bold text-gray-500 ml-1 uppercase">类型</label>
             <select v-model="formState.type" class="w-full px-4 py-2.5 text-xs bg-white dark:bg-black/20 border border-black/5 dark:border-white/5 rounded-lg focus:ring-2 focus:ring-primary-500/50 outline-none transition-all cursor-pointer">
               <option value="icmp">ICMP (Ping)</option>
               <option value="tcp">TCP (Port)</option>
@@ -300,24 +300,24 @@ const supportsCheck = computed(() => props.allowCheck);
             </select>
           </div>
           <div class="sm:col-span-2 space-y-1">
-            <label class="text-[10px] font-bold text-gray-500 ml-1 uppercase">Target</label>
+            <label class="text-[10px] font-bold text-gray-500 ml-1 uppercase">目标地址</label>
             <div class="flex items-center gap-2">
-               <input v-model="formState.target" placeholder="1.2.3.4 or example.com" class="flex-1 px-4 py-2.5 text-xs bg-white dark:bg-black/20 border border-black/5 dark:border-white/5 rounded-lg focus:ring-2 focus:ring-primary-500/50 outline-none transition-all" />
-               <input v-if="formState.type === 'tcp'" v-model="formState.port" placeholder="Port" class="w-20 px-4 py-2.5 text-xs bg-white/20 dark:bg-black/20 border border-black/5 dark:border-white/5 rounded-xl focus:ring-2 focus:ring-amber-500/50 outline-none transition-all" />
+               <input v-model="formState.target" placeholder="1.2.3.4 或 example.com" class="flex-1 px-4 py-2.5 text-xs bg-white dark:bg-black/20 border border-black/5 dark:border-white/5 rounded-lg focus:ring-2 focus:ring-primary-500/50 outline-none transition-all" />
+               <input v-if="formState.type === 'tcp'" v-model="formState.port" placeholder="端口" class="w-20 px-4 py-2.5 text-xs bg-white/20 dark:bg-black/20 border border-black/5 dark:border-white/5 rounded-xl focus:ring-2 focus:ring-amber-500/50 outline-none transition-all" />
             </div>
           </div>
         </div>
 
         <div v-if="formState.type === 'http'" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
            <div class="space-y-1">
-            <label class="text-[10px] font-bold text-gray-500 ml-1 uppercase">Scheme</label>
+            <label class="text-[10px] font-bold text-gray-500 ml-1 uppercase">协议</label>
             <select v-model="formState.scheme" class="w-full px-4 py-2.5 text-xs bg-white dark:bg-black/20 border border-black/5 dark:border-white/5 rounded-lg outline-none transition-all">
               <option value="https">https</option>
               <option value="http">http</option>
             </select>
           </div>
           <div class="col-span-1 lg:col-span-3 space-y-1">
-            <label class="text-[10px] font-bold text-gray-500 ml-1 uppercase">Path</label>
+            <label class="text-[10px] font-bold text-gray-500 ml-1 uppercase">路径</label>
             <input v-model="formState.path" placeholder="/health" class="w-full px-4 py-2.5 text-xs bg-white dark:bg-black/20 border border-black/5 dark:border-white/5 rounded-lg outline-none transition-all" />
           </div>
         </div>
@@ -327,12 +327,13 @@ const supportsCheck = computed(() => props.allowCheck);
           :disabled="isCreating"
           class="w-full mt-6 py-3 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-xs font-black uppercase tracking-widest shadow-xl shadow-primary-500/25 hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-50"
         >
-          {{ isCreating ? 'Processing...' : 'Add Monitor Target' }}
+          {{ isCreating ? '处理中...' : '添加监测目标' }}
         </button>
       </div>
     </div>
-    <div v-else class="text-center py-4 rounded-lg border border-dashed border-gray-300 dark:border-white/10 text-xs font-bold text-gray-400 uppercase tracking-widest bg-black/5">
-      Monitor target limit reached ({{ limit }})
+    <div v-else class="admin-empty-state">
+      <p class="admin-empty-title">已达到监测目标上限</p>
+      <p class="admin-empty-subtitle">当前最多允许 {{ limit }} 个全局监测目标</p>
     </div>
     </template>
   </div>

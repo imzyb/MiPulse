@@ -12,7 +12,7 @@ body {
 }
 
 .mipulse-card {
-  @apply bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm;
+  @apply rounded-3xl border border-black/5 bg-white/90 shadow-xl shadow-slate-200/40 backdrop-blur-xl dark:border-white/5 dark:bg-gray-900/85 dark:shadow-black/10;
 }
 
 .admin-page {
@@ -20,23 +20,39 @@ body {
 }
 
 .admin-hero {
-  @apply rounded-xl border border-black/5 dark:border-white/5 bg-white/75 dark:bg-gray-900/65 backdrop-blur-2xl shadow-xl p-6 lg:p-8;
+  @apply rounded-[1.75rem] border border-black/5 bg-white/80 p-6 shadow-2xl shadow-slate-200/40 backdrop-blur-2xl dark:border-white/5 dark:bg-gray-900/70 dark:shadow-black/10 lg:p-8;
 }
 
 .admin-panel {
-  @apply rounded-xl border border-black/5 dark:border-white/5 bg-white dark:bg-gray-900 shadow-xl;
+  @apply rounded-[1.5rem] border border-black/5 bg-white/95 shadow-2xl shadow-slate-200/30 dark:border-white/5 dark:bg-gray-900/95 dark:shadow-black/10;
 }
 
 .admin-primary-btn {
-  @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-xs font-black uppercase tracking-widest shadow-xl shadow-primary-500/30 transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50;
+  @apply inline-flex min-h-11 items-center justify-center gap-2 px-6 py-3 rounded-xl bg-primary-600 hover:bg-primary-700 text-xs font-black uppercase tracking-widest text-white shadow-xl shadow-primary-500/30 transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50;
 }
 
 .admin-secondary-btn {
-  @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-white/80 dark:bg-gray-900/50 border border-black/5 dark:border-white/5 hover:bg-white dark:hover:bg-gray-900 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50;
+  @apply inline-flex min-h-11 items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/80 dark:bg-gray-900/50 border border-black/5 dark:border-white/5 hover:bg-white dark:hover:bg-gray-900 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50;
+}
+
+.admin-danger-btn {
+  @apply inline-flex min-h-11 items-center justify-center gap-2 px-6 py-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-xs font-black uppercase tracking-widest text-white shadow-xl shadow-rose-500/20 transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50;
 }
 
 .admin-loading {
   @apply flex flex-col items-center justify-center py-28 gap-4;
+}
+
+.admin-empty-state {
+  @apply flex flex-col items-center justify-center py-12 text-center rounded-2xl border border-dashed border-black/10 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02];
+}
+
+.admin-empty-title {
+  @apply text-xs font-black uppercase tracking-widest text-gray-400;
+}
+
+.admin-empty-subtitle {
+  @apply text-[11px] text-gray-500 mt-2;
 }
 
 .admin-section-header {
@@ -48,11 +64,11 @@ body {
 }
 
 .admin-title-icon {
-  @apply w-11 h-11 rounded-lg bg-primary-600/10 text-primary-600 ring-1 ring-primary-600/20 flex items-center justify-center;
+  @apply flex h-11 w-11 items-center justify-center rounded-2xl bg-primary-600/10 text-primary-600 ring-1 ring-primary-600/20 shadow-inner shadow-white/40 dark:shadow-none;
 }
 
 .admin-title {
-  @apply text-sm font-black uppercase tracking-widest text-gray-900 dark:text-white;
+  @apply text-sm font-black uppercase tracking-[0.2em] text-gray-900 dark:text-white;
 }
 
 .admin-subtitle {
@@ -60,11 +76,11 @@ body {
 }
 
 .admin-input {
-  @apply w-full bg-black/5 dark:bg-white/5 rounded-lg p-4 border border-black/5 dark:border-white/5 outline-none font-bold text-sm;
+  @apply w-full rounded-xl border border-black/5 bg-black/5 p-4 text-sm font-bold outline-none dark:border-white/5 dark:bg-white/5;
 }
 
 .admin-select {
-  @apply w-full bg-black/10 dark:bg-white/5 text-gray-900 dark:text-gray-100 rounded-lg p-4 border border-gray-700 outline-none font-bold text-sm cursor-pointer;
+  @apply w-full cursor-pointer rounded-xl border border-gray-700 bg-black/10 p-4 text-sm font-bold text-gray-900 outline-none dark:bg-white/5 dark:text-gray-100;
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
@@ -83,7 +99,55 @@ body {
 }
 
 .admin-textarea {
-  @apply w-full bg-black/5 dark:bg-white/5 rounded-lg p-4 border border-black/5 dark:border-white/5 outline-none font-bold text-sm;
+  @apply w-full rounded-xl border border-black/5 bg-black/5 p-4 text-sm font-bold outline-none dark:border-white/5 dark:bg-white/5;
+}
+
+.admin-field {
+  @apply space-y-2;
+}
+
+.admin-label {
+  @apply ml-1 text-[10px] font-black uppercase tracking-widest text-gray-500;
+}
+
+.admin-help {
+  @apply ml-1 text-xs leading-5 text-gray-500 dark:text-gray-400;
+}
+
+.admin-subsection {
+  @apply space-y-4 rounded-[1.25rem] border border-black/5 bg-gradient-to-br from-slate-50 to-white p-5 shadow-inner shadow-white/60 dark:border-white/5 dark:from-white/[0.03] dark:to-white/[0.02] dark:shadow-none;
+}
+
+.admin-subsection-title {
+  @apply text-xs font-black uppercase tracking-[0.22em] text-gray-500 dark:text-gray-400;
+}
+
+.admin-subsection-desc {
+  @apply text-sm leading-6 text-gray-500 dark:text-gray-400;
+}
+
+.admin-aside-card {
+  @apply rounded-[1.5rem] border border-primary-500/15 bg-gradient-to-br from-primary-500/10 via-sky-500/5 to-transparent p-6 shadow-2xl shadow-primary-500/10 backdrop-blur-xl;
+}
+
+.admin-aside-title {
+  @apply text-xs font-black uppercase tracking-[0.22em] text-primary-600;
+}
+
+.admin-stat-card {
+  @apply relative overflow-hidden rounded-[1.5rem] border border-black/5 bg-white/90 p-6 shadow-2xl shadow-slate-200/30 backdrop-blur-xl dark:border-white/5 dark:bg-gray-900/85 dark:shadow-black/10;
+}
+
+.admin-stat-label {
+  @apply text-[11px] font-black uppercase tracking-[0.22em] text-gray-400;
+}
+
+.admin-stat-value {
+  @apply mt-2 text-3xl font-black tracking-tight text-gray-900 dark:text-white;
+}
+
+.admin-stat-meta {
+  @apply mt-2 text-xs font-medium text-gray-500 dark:text-gray-400;
 }
 
 .admin-select option {

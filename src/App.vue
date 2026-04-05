@@ -1,26 +1,47 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from './stores/auth';
-import { LayoutDashboard, LogOut, Activity, Bell, Monitor, Globe, Menu, X } from 'lucide-vue-next';
+import { LayoutDashboard, LogOut, Activity, Monitor, Globe, Menu, X } from 'lucide-vue-next';
 import ToastStack from './components/ui/ToastStack.vue';
 
 const router = useRouter();
 const route = useRoute();
 const auth = useAuthStore();
+const mobileMenuRef = ref(null);
 
 const isLoginPage = computed(() => route.path === '/login');
 const isPublicPage = computed(() => route.path === '/');
 const showSidebar = computed(() => auth.isAuthenticated && !isLoginPage.value && !isPublicPage.value);
+const currentPageTitle = computed(() => adminNavItems.find((item) => item.path === route.path)?.name || '管理后台');
 
 const isMobileMenuOpen = ref(false);
 const toggleMobileMenu = () => {
   isMobileMenuOpen.value = !isMobileMenuOpen.value;
 };
 
+const closeMobileMenu = () => {
+  isMobileMenuOpen.value = false;
+};
+
+const handleDocumentClick = (event) => {
+  if (!isMobileMenuOpen.value || !mobileMenuRef.value) return;
+  if (!mobileMenuRef.value.contains(event.target)) {
+    closeMobileMenu();
+  }
+};
+
 // Close mobile menu on navigation
 watch(() => route.path, () => {
   isMobileMenuOpen.value = false;
+});
+
+onMounted(() => {
+  window.addEventListener('click', handleDocumentClick);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', handleDocumentClick);
 });
 
 const handleLogout = () => {
@@ -47,7 +68,7 @@ const adminNavItems = [
     <ToastStack />
     <!-- Top Navigation Header -->
     <header v-if="showSidebar" class="sticky top-0 z-[60] bg-white/80 dark:bg-gray-950/80 backdrop-blur-3xl border-b border-black/5 dark:border-white/5 transition-all">
-      <div class="max-w-[1440px] mx-auto px-6 lg:px-12 h-20 flex items-center justify-between">
+      <div ref="mobileMenuRef" class="max-w-[1440px] mx-auto px-6 lg:px-12 h-20 flex items-center justify-between">
         <div class="flex items-center gap-12">
           <div @click="router.push('/admin')" class="flex items-center gap-3 cursor-pointer group">
             <div class="w-10 h-10 rounded-xl bg-primary-600 text-white flex items-center justify-center shadow-lg shadow-primary-500/30 group-hover:scale-110 transition-transform">
@@ -77,23 +98,21 @@ const adminNavItems = [
         </div>
 
         <div class="flex items-center gap-4">
-          <!-- Public Page Link - To the left of Notifications -->
+          <div class="hidden lg:flex flex-col items-end">
+            <span class="text-[10px] font-black uppercase tracking-[0.25em] text-gray-400">当前页面</span>
+            <span class="text-sm font-bold text-gray-900 dark:text-white">{{ currentPageTitle }}</span>
+          </div>
+
           <router-link to="/" class="p-3 rounded-2xl text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 transition-all" title="查看公开页">
             <Globe :size="20" />
           </router-link>
-
-          <!-- Notifications -->
-          <button class="p-3 rounded-2xl text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 transition-all relative">
-            <Bell :size="20" />
-            <span class="absolute top-3 right-3 w-2 h-2 bg-rose-500 rounded-full shadow-[0_0_8px_rgba(244,63,94,0.5)]"></span>
-          </button>
 
           <div class="w-px h-6 bg-gray-200 dark:bg-white/10 mx-2"></div>
 
           <!-- Logout -->
           <button @click="handleLogout" class="flex items-center gap-2 pl-4 pr-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-500/10 transition-all">
             <LogOut :size="18" />
-            <span class="hidden sm:inline">Logout</span>
+            <span class="hidden sm:inline">退出登录</span>
           </button>
         </div>
       </div>
@@ -108,6 +127,10 @@ const adminNavItems = [
         leave-to-class="transform -translate-y-4 opacity-0"
       >
         <div v-if="isMobileMenuOpen" class="md:hidden absolute top-20 left-0 right-0 bg-white/95 dark:bg-gray-950/95 backdrop-blur-3xl border-b border-black/5 dark:border-white/5 py-6 px-6 shadow-2xl z-[55]">
+          <div class="mb-5 pb-5 border-b border-black/5 dark:border-white/5">
+            <p class="text-[10px] font-black uppercase tracking-[0.25em] text-gray-400">当前页面</p>
+            <p class="mt-2 text-base font-bold text-gray-900 dark:text-white">{{ currentPageTitle }}</p>
+          </div>
           <nav class="flex flex-col gap-4">
             <router-link 
               v-for="item in adminNavItems" 
@@ -115,7 +138,7 @@ const adminNavItems = [
               :to="item.path"
               class="flex items-center justify-between p-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all"
               :class="route.path === item.path ? 'bg-primary-600/10 text-primary-600 border border-primary-500/20' : 'text-gray-500 hover:bg-black/5 dark:hover:bg-white/5'"
-              @click="isMobileMenuOpen = false"
+              @click="closeMobileMenu"
             >
               <span>{{ item.name }}</span>
               <div v-if="route.path === item.path" class="w-1.5 h-1.5 rounded-full bg-primary-600"></div>
@@ -128,7 +151,7 @@ const adminNavItems = [
           <!-- Bottom Actions inside Mobile Menu (Optional but handy) -->
           <button @click="handleLogout" class="w-full flex items-center justify-center gap-3 p-4 rounded-2xl text-xs font-black uppercase tracking-widest text-rose-500 bg-rose-500/5 transition-all">
             <LogOut :size="16" />
-            <span>Logout Account</span>
+            <span>退出当前账号</span>
           </button>
         </div>
       </transition>

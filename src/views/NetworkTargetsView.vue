@@ -13,7 +13,7 @@ const isSaving = ref(false);
 const targets = ref([]);
 const limit = ref(10);
 const checkingTargets = ref({});
-const config = ref({ vpsMonitor: { networkMonitorEnabled: true } });
+const config = ref({ networkMonitor: { globalEnabled: true, intervalMin: 5, targetLimit: 10, keepHistoryDays: 3 } });
 
 const loadData = async ({ notify = false } = {}) => {
   isLoading.value = true;
@@ -31,9 +31,14 @@ const loadData = async ({ notify = false } = {}) => {
       const settingsData = settingsRes.data || settingsRes.settings || {};
       const net = settingsData.network_monitor_json || {};
       config.value = {
-        vpsMonitor: net
+        networkMonitor: {
+          globalEnabled: net.globalEnabled ?? true,
+          intervalMin: net.intervalMin ?? 5,
+          targetLimit: net.targetLimit ?? 10,
+          keepHistoryDays: net.keepHistoryDays ?? 3
+        }
       };
-      limit.value = net.targetsLimit || 10;
+      limit.value = net.targetLimit || 10;
     }
     if (notify) {
       showToast('已刷新', 'success');
@@ -53,14 +58,19 @@ const handleSave = async () => {
   isSaving.value = true;
   try {
     const payload = {
-      network_monitor_json: config.value.vpsMonitor
+      network_monitor_json: config.value.networkMonitor
     };
     const result = await saveSettings(payload);
     if (result.success) {
       const settingsData = result.data || result.settings || {};
       if (settingsData.network_monitor_json) {
-        config.value.vpsMonitor = settingsData.network_monitor_json;
-        limit.value = settingsData.network_monitor_json.targetsLimit || limit.value;
+        config.value.networkMonitor = {
+          globalEnabled: settingsData.network_monitor_json.globalEnabled ?? true,
+          intervalMin: settingsData.network_monitor_json.intervalMin ?? 5,
+          targetLimit: settingsData.network_monitor_json.targetLimit ?? limit.value,
+          keepHistoryDays: settingsData.network_monitor_json.keepHistoryDays ?? 3
+        };
+        limit.value = settingsData.network_monitor_json.targetLimit || limit.value;
       }
       showToast('已保存', 'success');
     } else {
@@ -111,8 +121,8 @@ onMounted(loadData);
             <Radar :size="20" />
           </div>
           <div>
-            <h2 class="admin-title">Network Monitor</h2>
-            <p class="admin-subtitle">网络监测</p>
+              <h2 class="admin-title">网络监测</h2>
+              <p class="admin-subtitle">统一配置全局拨测开关、频率、目标上限与样本保留时间。</p>
           </div>
         </div>
         <button
@@ -125,28 +135,40 @@ onMounted(loadData);
         </button>
       </div>
 
-      <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div class="admin-panel xl:col-span-2 p-6 space-y-6">
-          <Switch v-model="config.vpsMonitor.networkMonitorEnabled" label="全局启用网络监测（所有节点共享此配置）" />
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="space-y-1">
-              <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">拨测间隔 (分钟)</label>
-              <input v-model.number="config.vpsMonitor.networkSampleIntervalMinutes" type="number" min="1" max="60" class="admin-input" />
+        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div class="admin-panel xl:col-span-2 p-6 space-y-6">
+          <div class="admin-subsection">
+            <div>
+              <h3 class="admin-subsection-title">全局开关</h3>
+              <p class="admin-subsection-desc">用于控制是否允许节点继续执行拨测任务并回传结果。</p>
             </div>
-            <div class="space-y-1">
-              <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">目标上限</label>
-              <input v-model.number="config.vpsMonitor.networkTargetsLimit" type="number" min="1" max="10" class="admin-input" />
+            <Switch v-model="config.networkMonitor.globalEnabled" label="全局启用网络监测" sublabel="关闭后将暂停全局拨测和结果回传。" />
+          </div>
+          <div class="admin-subsection">
+            <div>
+              <h3 class="admin-subsection-title">采样策略</h3>
+              <p class="admin-subsection-desc">控制拨测频率、可创建的目标数量，以及样本在 D1 中的保留时间。</p>
             </div>
-            <div class="space-y-1">
-              <label class="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">网络采样保留 (天)</label>
-              <input v-model.number="config.vpsMonitor.reportRetentionDays" type="number" min="1" max="180" class="admin-input" />
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="admin-field">
+                <label class="admin-label">拨测间隔 (分钟)</label>
+                <input v-model.number="config.networkMonitor.intervalMin" type="number" min="1" max="60" class="admin-input" />
+              </div>
+              <div class="admin-field">
+                <label class="admin-label">目标上限</label>
+                <input v-model.number="config.networkMonitor.targetLimit" type="number" min="1" max="10" class="admin-input" />
+              </div>
+              <div class="admin-field">
+                <label class="admin-label">网络采样保留 (天)</label>
+                <input v-model.number="config.networkMonitor.keepHistoryDays" type="number" min="1" max="180" class="admin-input" />
+              </div>
             </div>
           </div>
         </div>
-        <div class="p-6 rounded-xl bg-gradient-to-br from-primary-500/10 to-blue-500/5 border border-primary-500/20 shadow-lg space-y-4">
-          <div class="text-xs font-black uppercase tracking-widest text-primary-500">拨测说明</div>
-          <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">节点会按配置间隔对 ICMP / TCP / HTTP 目标进行拨测并回传指标。所有节点共享全局网络监测目标。</p>
-          <p class="text-xs text-gray-500">目标上限用于保护节点开销，建议保持 3-5 个。</p>
+        <div class="admin-aside-card space-y-4">
+          <div class="admin-aside-title">拨测说明</div>
+          <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">所有节点共享同一套全局拨测配置。建议将拨测间隔保持在 3-5 分钟，避免不必要的 D1 写入与节点开销。</p>
+          <p class="text-xs text-gray-500">目标上限用于控制拨测成本，样本保留时间越长，占用的 D1 配额也越多。</p>
         </div>
       </div>
 
@@ -173,7 +195,7 @@ onMounted(loadData);
         <button @click="handleSave" :disabled="isSaving" class="admin-primary-btn px-10 py-4">
           <Save v-if="!isSaving" :size="18" />
           <RefreshCw v-else :size="18" class="animate-spin" />
-          {{ isSaving ? 'COMMITING...' : 'SAVE PROTOCOL' }}
+          {{ isSaving ? '保存中...' : '保存网络监测设置' }}
         </button>
       </div>
     </section>
