@@ -8,7 +8,7 @@ import {
 } from 'lucide-vue-next';
 import { 
   fetchVpsNodes, createVpsNode, updateVpsNode, deleteVpsNode, 
-  fetchVpsAlerts, clearVpsAlerts 
+  fetchVpsAlerts, clearVpsAlerts, resetVpsTraffic
 } from '../lib/api.js';
 import { formatBytes } from '../lib/utils.js';
 import DataGrid from '../components/shared/DataGrid.vue';
@@ -29,6 +29,7 @@ let countdownTimer = null;
 const showCreateModal = ref(false);
 const showEditModal = ref(false);
 const showDeleteModal = ref(false);
+const isResetting = ref(false);
 const selectedNode = ref(null);
 
 const formState = ref({
@@ -126,6 +127,8 @@ const handleUpdate = async () => {
   await loadData();
 };
 
+const onlineCount = computed(() => nodes.value.filter(n => n.status === 'online').length);
+
 const formatTime = (iso) => {
   if (!iso) return '从未';
   return new Date(iso).toLocaleString();
@@ -135,6 +138,24 @@ const totalTraffic = computed(() => {
     const sum = nodes.value.reduce((acc, node) => acc + (node.totalRx || 0) + (node.totalTx || 0), 0);
     return formatBytes(sum);
 });
+
+const handleResetTraffic = async () => {
+    if (!selectedNode.value || isResetting.value) return;
+    if (!confirm('确定要重置该节点的累计流量统计吗？此操作不可撤销。')) return;
+    
+    isResetting.value = true;
+    try {
+        await resetVpsTraffic(selectedNode.value.id);
+        await loadData(true);
+        // 更新当前选中的节点数据以同步 UI
+        const updated = nodes.value.find(n => n.id === selectedNode.value.id);
+        if (updated) selectedNode.value = updated;
+    } catch (err) {
+        alert('重置失败: ' + (err.message || '未知错误'));
+    } finally {
+        isResetting.value = false;
+    }
+};
 
 </script>
 
@@ -373,6 +394,9 @@ const totalTraffic = computed(() => {
         </div>
       </template>
       <template #footer>
+        <button v-if="selectedNode" @click="handleResetTraffic" :disabled="isResetting" class="mr-auto px-4 py-2 border border-rose-500/30 bg-rose-500/5 hover:bg-rose-500/10 text-rose-500 text-xs font-bold rounded-xl transition-all">
+          {{ isResetting ? '正在重置...' : '重置流量统计' }}
+        </button>
         <button @click="showEditModal = false" class="px-6 py-3 text-gray-400 font-bold text-sm">取消</button>
         <button @click="handleUpdate" class="px-8 py-3 bg-primary-600 text-white font-bold text-sm rounded-2xl shadow-lg shadow-primary-500/30">保存节点设置</button>
       </template>

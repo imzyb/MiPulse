@@ -33,5 +33,6 @@ export const fetchSettings = () => api.get('/vps/settings').then(res => res.data
 export const testNotifications = () => api.post('/vps/notifications/test').then(res => res.data);
 export const fetchProfile = () => api.get('/auth/profile').then(res => res.data);
 export const updateProfile = (data) => api.put('/auth/profile', data).then(res => res.data);
+export const resetVpsTraffic = (id) => api.post(`/vps/nodes/${id}/reset-traffic`).then(res => res.data);
 
 export default api;

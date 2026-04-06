@@ -4,7 +4,7 @@ import { useToastStore } from '../stores/toast.js';
 import {
   fetchVpsNodes, createVpsNode, updateVpsNode, deleteVpsNode,
   fetchVpsAlerts, clearVpsAlerts, fetchVpsNodeDetail,
-  fetchSettings
+  fetchSettings, resetVpsTraffic
 } from '../lib/api.js';
 import { formatNetworkSpeed, formatUptime } from '../lib/utils.js';
 import {
@@ -56,6 +56,7 @@ const isUpdatingNode = ref(false);
 const isDeletingNode = ref(false);
 const isDetailLoading = ref(false);
 const isResettingSecret = ref(false);
+const isResettingTraffic = ref(false);
 
 const selectedNode = ref(null);
 const detailPayload = ref(null);
@@ -323,6 +324,26 @@ const handleResetConnection = async () => {
   }
 };
 
+const handleResetTraffic = async () => {
+    if (!selectedNode.value?.id || isResettingTraffic.value) return;
+    if (!confirm('确定要重置由于系统统计错误导致的累计流量数据吗？此操作将使该节点的统计归零并重新开始准确计费。')) return;
+
+    isResettingTraffic.value = true;
+    try {
+        const result = await resetVpsTraffic(selectedNode.value.id);
+        if (result.success) {
+            showToast('流量统计已清零', 'success');
+            await loadData({ silent: true });
+        } else {
+            showToast(result?.error || '重置失败', 'error');
+        }
+    } catch (error) {
+        showToast(error?.message || '重置失败', 'error');
+    } finally {
+        isResettingTraffic.value = false;
+    }
+};
+
 // Final load logic removed as it is now in onMounted
 </script>
 
@@ -474,9 +495,14 @@ const handleResetConnection = async () => {
         </div>
       </template>
       <template #footer>
-        <button @click="handleUpdate" :disabled="isUpdatingNode" class="w-full py-4 rounded-xl bg-primary-600 text-white font-black uppercase tracking-widest transition-all">
-          {{ isUpdatingNode ? '保存中...' : '提交更改' }}
-        </button>
+        <div class="flex items-center justify-between w-full">
+          <button @click="handleResetTraffic" :disabled="isResettingTraffic" class="text-[10px] font-black uppercase tracking-widest text-rose-500 bg-rose-500/5 hover:bg-rose-500/10 px-4 py-2 rounded-lg border border-rose-500/20 transition-all disabled:opacity-50">
+            {{ isResettingTraffic ? '正在重置...' : '重置流量统计' }}
+          </button>
+          <button @click="handleUpdate" :disabled="isUpdatingNode" class="px-8 py-4 rounded-xl bg-primary-600 text-white font-black uppercase tracking-widest transition-all">
+            {{ isUpdatingNode ? '保存中...' : '提交更改' }}
+          </button>
+        </div>
       </template>
     </Modal>
 

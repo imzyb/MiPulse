@@ -32,7 +32,14 @@ function computeTrafficDelta(currentValue, previousValue, hasPreviousReport) {
     const current = getNumericTrafficValue(currentValue);
     if (!hasPreviousReport) return 0;
     const previous = getNumericTrafficValue(previousValue);
+    
+    // 如果之前的报文是 0（可能是探针故障、重启初次报文等），
+    // 此时无法计算可靠的增量，应将当前值作为下次计算的基准，避免加回几百GB甚至TB的全量数据。
+    if (previous === 0) return 0;
+    
     if (current >= previous) return current - previous;
+    
+    // 如果当前值小于之前值，通常是 VPS 重启后流量计数器归零
     return current;
 }
 
@@ -578,6 +585,17 @@ vps.put('/nodes/:id', async (c) => {
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
+vps.post('/nodes/:id/reset-traffic', async (c) => {
+    const db = c.env.MIPULSE_DB;
+    const id = c.req.param('id');
+    try {
+        await db.prepare('UPDATE vps_nodes SET total_rx = 0, total_tx = 0 WHERE id = ?').bind(id).run();
+        invalidateAdminNodesCache();
+        await invalidatePublicNodesCache(c.env.MIPULSE_KV, true);
+        return c.json({ success: true });
+    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+});
+
 vps.delete('/nodes/:id', async (c) => {
     const db = c.env.MIPULSE_DB; const id = c.req.param('id');
     try { await db.batch([ db.prepare('DELETE FROM vps_nodes WHERE id = ?').bind(id), db.prepare('DELETE FROM vps_reports WHERE node_id = ?').bind(id), db.prepare('DELETE FROM vps_network_targets WHERE node_id = ?').bind(id) ]); invalidateAdminNodesCache(); await invalidatePublicNodesCache(c.env.MIPULSE_KV, true); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
@@ -878,7 +896,7 @@ vps.get('/install', async (c) => {
     const reporterScript = [
         '#!/bin/bash',
         'LOG="/opt/mipulse/reporter.log"',
-        'echo "[$(date)] MiPulse Reporter started. v1.7.2 URL=$MIPULSE_URL ID=$MIPULSE_ID" >> "$LOG"',
+        'echo "[$(date)] MiPulse Reporter started. v1.7.3 URL=$MIPULSE_URL ID=$MIPULSE_ID" >> "$LOG"',
         '',
         'targets=()',
         'fetch_targets() {',
@@ -944,7 +962,6 @@ vps.get('/install', async (c) => {
         '  ',
         '  cpu_percent="0.00"',
         '  if [[ -f /proc/stat ]]; then',
-        '    # Use read builtin for stability',
         '    read -r c_name u_n s_n s_s i_e i_w i_q s_q s_l _ < <(grep "^cpu " /proc/stat)',
         '    t1=$((u_n+s_n+s_s+i_e+i_w+i_q+s_q+s_l))',
         '    i1=$((i_e+i_w))',
@@ -964,8 +981,18 @@ vps.get('/install', async (c) => {
         '  disk_percent=$(df / 2>/dev/null | awk \'NR==2{gsub(/%/,\"\",$5); print $5}\' | tr -d \'\n\r\') || disk_percent=0',
         '  load1="0.00"; [[ -f /proc/loadavg ]] && read -r load1 _ < /proc/loadavg',
         '  up=0; [[ -f /proc/uptime ]] && read -r up _ < /proc/uptime; uptime_sec=$(echo "$up" | cut -d. -f1 | tr -d \'\n\r\')',
-        '  rx=$(awk \'NR>2 && $1 !~ /lo:/{gsub(/:/,\" \",$1); sum+=$2} END{print int(sum)}\' /proc/net/dev 2>/dev/null | tr -d \'\n\r\' || echo 0)',
-        '  tx=$(awk \'NR>2 && $1 !~ /lo:/{gsub(/:/,\" \",$1); sum+=$10} END{print int(sum)}\' /proc/net/dev 2>/dev/null | tr -d \'\n\r\' || echo 0)',
+        '  ',
+        '  # 优化网卡流量统计：优先找默认路由主网卡，排除虚拟接口',
+        '  main_iface=$(ip route | grep default | awk \'{print $5}\' | head -n 1)',
+        '  if [[ -z "$main_iface" ]]; then',
+        '    # 回退逻辑：排除常见虚拟接口',
+        '    rx=$(awk \'NR>2 && $1 !~ /lo|veth|docker|br-|tun|tap|any/{gsub(/:/,\" \",$1); sum+=$2} END{printf "%.0f", sum}\' /proc/net/dev 2>/dev/null | tr -d \'\n\r\' || echo 0)',
+        '    tx=$(awk \'NR>2 && $1 !~ /lo|veth|docker|br-|tun|tap|any/{gsub(/:/,\" \",$1); sum+=$10} END{printf "%.0f", sum}\' /proc/net/dev 2>/dev/null | tr -d \'\n\r\' || echo 0)',
+        '  else',
+        '    # 精确统计主网卡',
+        '    rx=$(awk -v iface="$main_iface" \'$1 ~ iface":" {print $2}\' /proc/net/dev 2>/dev/null | tr -d \'\n\r\' || echo 0)',
+        '    tx=$(awk -v iface="$main_iface" \'$1 ~ iface":" {print $10}\' /proc/net/dev 2>/dev/null | tr -d \'\n\r\' || echo 0)',
+        '  fi',
         '  ',
         '  latency_ms=0; latency_sum=0; latency_count=0; loss_count=0; checks_json=""',
         '  for t in "${targets[@]}"; do',
@@ -994,7 +1021,7 @@ vps.get('/install', async (c) => {
         '  ',
         '  os_info="Linux"; [[ -f /etc/os-release ]] && os_info=$(. /etc/os-release && echo "$PRETTY_NAME")',
         '  os_pretty=$(echo "$os_info" | tr -d \'"\' | tr -d \'\n\r\')',
-        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":${loss_percent:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.7.2\\\"}}"',
+        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":${loss_percent:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.7.3\\\"}}"',
         '  resp=$(curl -sS --connect-timeout 10 -m 30 -X POST "$MIPULSE_URL/api/vps/report" -H "Content-Type: application/json" -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" -d "$json" 2>&1) || true',
         '  echo "[$(date)] CPU=$cpu_percent MEM=$mem_percent LAT=$latency_ms LOSS=$loss_percent% $resp" >> "$LOG"',
         '  tail -300 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG" 2>/dev/null',
@@ -1003,13 +1030,14 @@ vps.get('/install', async (c) => {
     ].join('\n');
 
     const script = `#!/bin/bash
-echo "# MiPulse Probe Universal Installer (Bash v1.7.1)"
+echo "# MiPulse Probe Universal Installer (Bash v1.7.3)"
 echo "=========================================="
-echo "  MiPulse Universal Bash Probe v1.7.2"
+echo "  MiPulse Universal Bash Probe v1.7.3"
 
 echo "=========================================="
 if [[ $EUID -ne 0 ]]; then echo "Error: must be root"; exit 1; fi
 mkdir -p /opt/mipulse && cd /opt/mipulse
+echo "Downloading reporter script..."
 cat > /opt/mipulse/reporter.sh << 'REPORTER_EOF'
 ${reporterScript}
 REPORTER_EOF
