@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS vps_nodes (
     last_seen_at DATETIME,
     last_report_json TEXT,
     overload_state_json TEXT,
+    deleted_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -76,11 +77,31 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_vps_nodes_updated_at ON vps_nodes(updated_at);
+CREATE INDEX IF NOT EXISTS idx_vps_nodes_deleted_at ON vps_nodes(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_vps_reports_node_time ON vps_reports(node_id, reported_at);
 CREATE INDEX IF NOT EXISTS idx_vps_alerts_node_time ON vps_alerts(node_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_vps_network_targets_node ON vps_network_targets(node_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_vps_network_samples_node_time ON vps_network_samples(node_id, reported_at);
 CREATE INDEX IF NOT EXISTS idx_settings_updated_at ON settings(updated_at);
+
+-- Audit Logs Table for Security & Compliance
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    action TEXT NOT NULL,
+    resource_type TEXT,
+    resource_id TEXT,
+    old_value TEXT,
+    new_value TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id);
 
 -- Default Settings Initialization
 INSERT OR IGNORE INTO settings (key, value) VALUES ('vps_monitor_json', '{"requireSecret":true,"requireSignature":false,"signatureClockSkewMinutes":5,"offlineThresholdMinutes":5,"reportIntervalMinutes":1,"reportStoreIntervalMinutes":5,"alertsEnabled":false,"notifyOffline":true,"notifyRecovery":true,"notifyOverload":true,"cpuWarnPercent":90,"memWarnPercent":90,"diskWarnPercent":90,"alertCooldownMinutes":30,"overloadConfirmCount":3,"reportRetentionDays":7}');

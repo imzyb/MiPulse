@@ -1,10 +1,15 @@
 import { Hono } from 'hono';
 import { sign } from 'hono/jwt';
+import { loginSchema, profileUpdateSchema, validateBody } from '../validators.js';
+import { logAudit, AuditActions, ResourceTypes } from '../../services/audit.js';
 
 const auth = new Hono();
 
 function getJwtSecret(env) {
-    return env.JWT_SECRET || 'mipulse-secret-key';
+    if (!env.JWT_SECRET) {
+        throw new Error('JWT_SECRET environment variable is required in production');
+    }
+    return env.JWT_SECRET;
 }
 
 function encodeHex(buffer) {
@@ -67,11 +72,18 @@ async function upsertUser(db, id, username, password) {
 auth.post('/login', async (c) => {
     const db = c.env.MIPULSE_DB;
     const body = await c.req.json();
-    const { username, password } = body;
-
-    if (!username || !password) {
-        return c.json({ success: false, error: 'Missing credentials' }, 400);
+    
+    // Validate request body
+    const validation = validateBody(body, loginSchema);
+    if (!validation.success) {
+        return c.json({ 
+            success: false, 
+            error: 'Validation failed',
+            details: validation.errors 
+        }, 400);
     }
+    
+    const { username, password } = validation.data;
 
     try {
         let user = await db.prepare('SELECT * FROM users WHERE username = ?').bind(username).first();
@@ -91,6 +103,17 @@ auth.post('/login', async (c) => {
             }
 
             const token = await issueToken(c.env, user);
+            
+            // Audit logging for successful login
+            await logAudit(db, {
+                userId: user.id,
+                action: AuditActions.LOGIN,
+                resourceType: ResourceTypes.USER,
+                resourceId: String(user.id),
+                ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+                userAgent: c.req.header('user-agent')
+            });
+            
             return c.json({ success: true, token });
         }
 
@@ -111,9 +134,20 @@ auth.put('/profile', async (c) => {
     const db = c.env.MIPULSE_DB;
     const payload = c.get('jwtPayload');
     const body = await c.req.json();
-    const currentPassword = body.currentPassword || '';
-    const nextUsername = (body.newUsername || payload.username || '').trim();
-    const nextPassword = body.newPassword || '';
+    
+    // Validate request body
+    const validation = validateBody(body, profileUpdateSchema);
+    if (!validation.success) {
+        return c.json({ 
+            success: false, 
+            error: 'Validation failed',
+            details: validation.errors 
+        }, 400);
+    }
+    
+    const currentPassword = validation.data.currentPassword || '';
+    const nextUsername = (validation.data.newUsername || payload.username || '').trim();
+    const nextPassword = validation.data.newPassword || '';
 
     try {
         if (!currentPassword) {
@@ -129,6 +163,8 @@ auth.put('/profile', async (c) => {
             return c.json({ success: false, error: 'User not found' }, 404);
         }
 
+        const oldUsername = user.username;
+        
         const currentPasswordValid = user.id === 'bootstrap-admin'
             ? currentPassword === 'mipulse-secret'
             : await verifyPassword(user.password_hash, currentPassword);
@@ -139,6 +175,19 @@ auth.put('/profile', async (c) => {
         const passwordToSave = nextPassword || currentPassword;
         const updatedUser = await upsertUser(db, user.id, nextUsername, passwordToSave);
         const token = await issueToken(c.env, updatedUser);
+        
+        // Audit logging for profile update
+        await logAudit(db, {
+            userId: user.id,
+            action: AuditActions.PROFILE_UPDATE,
+            resourceType: ResourceTypes.USER,
+            resourceId: String(user.id),
+            oldValue: { username: oldUsername },
+            newValue: { username: nextUsername, passwordChanged: !!nextPassword },
+            ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+            userAgent: c.req.header('user-agent')
+        });
+        
         return c.json({ success: true, token, user: updatedUser, data: updatedUser });
     } catch (err) {
         return c.json({ success: false, error: err.message }, 500);

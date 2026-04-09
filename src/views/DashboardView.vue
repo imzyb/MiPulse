@@ -15,6 +15,9 @@ import DataGrid from '../components/shared/DataGrid.vue';
 import Modal from '../components/forms/Modal.vue';
 import VpsMetricChart from '../components/vps/VpsMetricChart.vue';
 import Switch from '../components/ui/Switch.vue';
+import ConfirmModal from '../components/ui/ConfirmModal.vue';
+import Skeleton from '../components/ui/Skeleton.vue';
+import InputField from '../components/forms/InputField.vue';
 
 const nodes = ref([]);
 const alerts = ref([]);
@@ -78,16 +81,29 @@ onUnmounted(() => {
 });
 
 const handleCreate = async () => {
-  await createVpsNode(formState.value);
-  showCreateModal.value = false;
-  loadData();
+  try {
+    await createVpsNode(formState.value);
+    showCreateModal.value = false;
+    await loadData();
+  } catch (error) {
+    // Error handled by API interceptor
+  }
 };
 
+const isDeleting = ref(false);
+
 const handleDelete = async () => {
-  if (selectedNode.value) {
+  if (!selectedNode.value || isDeleting.value) return;
+  
+  isDeleting.value = true;
+  try {
     await deleteVpsNode(selectedNode.value.id);
     showDeleteModal.value = false;
-    loadData();
+    await loadData();
+  } catch (error) {
+    // Error handled by API interceptor
+  } finally {
+    isDeleting.value = false;
   }
 };
 
@@ -336,27 +352,46 @@ const handleResetTraffic = async () => {
       <template #body>
         <div class="space-y-6">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="admin-field">
-              <label class="admin-label">节点名称</label>
-              <input v-model="formState.name" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" placeholder="My-Node-01" />
-              <p class="admin-help">用于后台展示和识别节点，建议填写业务可读名称。</p>
-            </div>
-            <div class="admin-field">
-              <label class="admin-label">分组标签</label>
-              <input v-model="formState.groupTag" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" placeholder="Default" />
-            </div>
-            <div class="admin-field">
-              <label class="admin-label">节点标识</label>
-              <input v-model="formState.tag" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" placeholder="hk-prod-01" />
-            </div>
-            <div class="admin-field">
-              <label class="admin-label">区域</label>
-              <input v-model="formState.region" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" placeholder="Tokyo / Singapore" />
-            </div>
+            <InputField
+              v-model="formState.name"
+              label="节点名称"
+              placeholder="My-Node-01"
+              required
+              :max-length="50"
+              :validate="(val) => !val ? '请输入节点名称' : val.length < 2 ? '名称至少 2 个字符' : null"
+              help-text="用于后台展示和识别节点，建议填写业务可读名称。"
+            />
+            <InputField
+              v-model="formState.groupTag"
+              label="分组标签"
+              placeholder="Default"
+              :max-length="30"
+            />
+            <InputField
+              v-model="formState.tag"
+              label="节点标识"
+              placeholder="hk-prod-01"
+              required
+              :max-length="50"
+              :validate="(val) => !val ? '请输入节点标识' : /^[a-zA-Z0-9\-_]+$/.test(val) ? null : '只能包含字母、数字、横线和下划线'"
+            />
+            <InputField
+              v-model="formState.region"
+              label="区域"
+              placeholder="Tokyo / Singapore"
+              :max-length="100"
+            />
           </div>
           <div class="admin-field">
             <label class="admin-label">描述信息</label>
-            <textarea v-model="formState.description" class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" rows="3" placeholder="节点的详细描述..."></textarea>
+            <textarea 
+              v-model="formState.description" 
+              class="w-full px-4 py-3 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 focus:ring-2 focus:ring-primary-500/20 outline-none transition-all dark:text-white" 
+              rows="3" 
+              placeholder="节点的详细描述..."
+              maxlength="500"
+            />
+            <p class="admin-help">{{ formState.description.length }}/500</p>
           </div>
           <Switch v-model="formState.enabled" label="启用监控" sublabel="关闭后节点仍会保留，但不会参与公开页展示和状态统计。" />
         </div>
@@ -403,14 +438,15 @@ const handleResetTraffic = async () => {
     </Modal>
 
     <!-- Delete Confirm -->
-    <Modal v-model:show="showDeleteModal" title="确认删除" size="sm">
-      <template #body>
-        <p class="text-gray-500">您确定要删除节点 <span class="font-bold text-gray-900 dark:text-white">{{ selectedNode?.name }}</span> 吗？这将清除所有历史监控数据。</p>
-      </template>
-      <template #footer>
-        <button @click="showDeleteModal = false" class="px-6 py-3 text-gray-400 font-bold text-sm">取消</button>
-        <button @click="handleDelete" class="admin-danger-btn">确认删除</button>
-      </template>
-    </Modal>
+    <ConfirmModal
+      v-model:show="showDeleteModal"
+      title="确认删除节点"
+      message="您确定要删除节点「{{ selectedNode?.name }}」吗？此操作将清除所有历史监控数据且不可恢复。"
+      confirm-text="确认删除"
+      cancel-text="取消"
+      type="danger"
+      :loading="isDeleting"
+      @confirm="handleDelete"
+    />
   </div>
 </template>
