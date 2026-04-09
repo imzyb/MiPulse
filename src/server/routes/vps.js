@@ -1014,7 +1014,8 @@ vps.get('/install', async (c) => {
     const reporterScript = [
         '#!/bin/bash',
         'LOG="/opt/mipulse/reporter.log"',
-        'echo "[$(date)] MiPulse Reporter started. v1.7.3 URL=$MIPULSE_URL ID=$MIPULSE_ID" >> "$LOG"',
+        'last_log_rotation=$(date +%s)',
+        'echo "[$(date)] MiPulse Reporter started. v1.7.4 URL=$MIPULSE_URL ID=$MIPULSE_ID" >> "$LOG"',
         '',
         'targets=()',
         'fetch_targets() {',
@@ -1112,16 +1113,20 @@ vps.get('/install', async (c) => {
         '    tx=$(awk -v iface="$main_iface" \'$1 ~ iface":" {print $10}\' /proc/net/dev 2>/dev/null | tr -d \'\n\r\' || echo 0)',
         '  fi',
         '  ',
-        '  latency_ms=0; latency_sum=0; latency_count=0; loss_count=0; checks_json=""',
+        '  latency_ms=0; latency_sum=0; latency_count=0; unreachable_count=0; checks_json=""',
         '  for t in "${targets[@]}"; do',
+        '    # 测量 DNS 解析时间 + ICMP ping 延迟',
         '    raw_p=$(ping -c 3 -W 2 "$t" 2>&1); ping_out=$(echo "$raw_p" | tail -n 1)',
         '    avg=0; if [[ "$ping_out" == *"/"* ]]; then',
         '      avg=$(echo "$ping_out" | awk -F\'/\' \'{if (NF >= 7) print $(NF-2); else if (NF >= 5) print $(NF-1); else print "0"}\' | sed \'s/[^0-9.]//g\' | tr -d \'\n\r\')',
         '      if [[ -z "$avg" ]] || [[ "$avg" == "0" ]]; then avg=$(echo "$ping_out" | sed \'s/.*= *//\' | cut -d/ -f2 | awk \'{print $1}\' | tr -d " ms" | tr -d \'\n\r\'); fi',
         '    fi',
+        '    # 如果 ping 失败，尝试 TCP 连接（包含 DNS 解析）',
         '    if [[ -z "$avg" ]] || [[ "$avg" == "0" ]]; then',
-        '      tcp_lat=$(curl -o /dev/null -s -w "%{time_connect}\\n" --connect-timeout 2 "https://$t" 2>/dev/null) || tcp_lat=""',
-        '      if [[ -z "$tcp_lat" ]] || [[ "$tcp_lat" == "0.000" ]]; then tcp_lat=$(curl -o /dev/null -s -w "%{time_connect}\\n" --connect-timeout 2 "http://$t" 2>/dev/null) || tcp_lat=""; fi',
+        '      tcp_lat=$(curl -o /dev/null -s -w "%{time_total}" --connect-timeout 2 "https://$t" 2>/dev/null) || tcp_lat=""',
+        '      if [[ -z "$tcp_lat" ]] || [[ "$tcp_lat" == "0.000" ]]; then',
+        '        tcp_lat=$(curl -o /dev/null -s -w "%{time_total}" --connect-timeout 2 "http://$t" 2>/dev/null) || tcp_lat=""',
+        '      fi',
         '      if [[ ! -z "$tcp_lat" ]] && [[ "$tcp_lat" != "0.000" ]]; then avg=$(awk -v t="$tcp_lat" \'BEGIN {printf "%.2f", t * 1000}\' 2>/dev/null | tr -d \'\n\r\'); fi',
         '    fi',
         '    if [[ ! -z "$avg" ]] && [[ "$avg" != "0" ]]; then',
@@ -1129,28 +1134,34 @@ vps.get('/install', async (c) => {
         '      latency_count=$((latency_count + 1))',
         '      comma=""; [[ ! -z "$checks_json" ]] && comma=","; checks_json="${checks_json}${comma}{\\\"name\\\":\\\"$t\\\",\\\"latencyMs\\\":$avg,\\\"loss\\\":0}"',
         '    else',
-        '      loss_count=$((loss_count + 1))',
+        '      unreachable_count=$((unreachable_count + 1))',
         '      comma=""; [[ ! -z "$checks_json" ]] && comma=","; checks_json="${checks_json}${comma}{\\\"name\\\":\\\"$t\\\",\\\"latencyMs\\\":0,\\\"loss\\\":100}"',
         '    fi',
         '  done',
         '  [[ $latency_count -gt 0 ]] && latency_ms=$(awk -v s="$latency_sum" -v c="$latency_count" \'BEGIN {printf "%.2f", s / c}\' 2>/dev/null | tr -d \'\n\r\')',
         '  target_count=${#targets[@]}',
-        '  loss_percent=0; [[ $target_count -gt 0 ]] && loss_percent=$((100 * loss_count / target_count))',
+        '  loss_percent=0; [[ $target_count -gt 0 ]] && loss_percent=$((100 * unreachable_count / target_count))',
         '  ',
         '  os_info="Linux"; [[ -f /etc/os-release ]] && os_info=$(. /etc/os-release && echo "$PRETTY_NAME")',
         '  os_pretty=$(echo "$os_info" | tr -d \'"\' | tr -d \'\n\r\')',
-        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":${loss_percent:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.7.3\\\"}}"',
+        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":${loss_percent:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.7.4\\\"}}"',
         '  resp=$(curl -sS --connect-timeout 10 -m 30 -X POST "$MIPULSE_URL/api/vps/report" -H "Content-Type: application/json" -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" -d "$json" 2>&1) || true',
         '  echo "[$(date)] CPU=$cpu_percent MEM=$mem_percent LAT=$latency_ms LOSS=$loss_percent% $resp" >> "$LOG"',
-        '  tail -300 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG" 2>/dev/null',
+        '  # 日志轮转：每小时或超过 5000 行时执行',
+        '  now=$(date +%s)',
+        '  log_lines=$(wc -l < "$LOG" 2>/dev/null || echo 0)',
+        '  if (( now - last_log_rotation > 3600 )) || (( log_lines > 5000 )); then',
+        '    tail -300 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG" 2>/dev/null',
+        '    last_log_rotation=$now',
+        '  fi',
         '  sleep 55',
         'done',
     ].join('\n');
 
     const script = `#!/bin/bash
-echo "# MiPulse Probe Universal Installer (Bash v1.7.3)"
+echo "# MiPulse Probe Universal Installer (Bash v1.7.4)"
 echo "=========================================="
-echo "  MiPulse Universal Bash Probe v1.7.3"
+echo "  MiPulse Universal Bash Probe v1.7.4"
 
 echo "=========================================="
 if [[ $EUID -ne 0 ]]; then echo "Error: must be root"; exit 1; fi
@@ -1181,7 +1192,7 @@ systemctl daemon-reload
 systemctl enable mipulse-probe
 systemctl restart mipulse-probe
 echo "=========================================="
-echo "  MiPulse Bash Probe v1.7.0 installed!"
+echo "  MiPulse Bash Probe v1.7.4 installed!"
 echo "  Debug log: cat /opt/mipulse/reporter.log"
 echo "=========================================="
 `;

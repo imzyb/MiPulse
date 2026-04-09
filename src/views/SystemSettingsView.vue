@@ -12,6 +12,7 @@ const isLoading = ref(true);
 const isSaving = ref(false);
 const isSavingProfile = ref(false);
 const isTestingNotify = ref(false);
+const isFirstLogin = ref(false); // 标记是否首次登录
 const config = ref({ vpsMonitor: {}, notifications: { enabled: false, telegram: {}, webhook: {}, pushplus: {} } });
 const profile = ref({
   username: 'admin',
@@ -26,6 +27,12 @@ const loadData = async () => {
   try {
     const result = await fetchSettings();
     const profileRes = await fetchProfile();
+    
+    // 检查是否是首次登录（通过检查是否有 mustChangePassword 字段）
+    if (profileRes.success && profileRes.user) {
+      isFirstLogin.value = !!profileRes.user.must_change_password;
+    }
+    
     if (result.success) {
       const settingsData = result.data || result.settings || {};
       config.value = {
@@ -248,6 +255,25 @@ onMounted(loadData);
       <div class="admin-divider"></div>
 
       <section class="grid grid-cols-1 gap-6">
+        <!-- 首次登录提示横幅 -->
+        <div v-if="isFirstLogin" class="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl p-6 flex items-start gap-4">
+          <div class="flex-shrink-0 w-12 h-12 bg-amber-100 dark:bg-amber-900/50 rounded-xl flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-lg font-bold text-amber-900 dark:text-amber-100 mb-1">⚠️ 首次登录安全提示</h3>
+            <p class="text-sm text-amber-800 dark:text-amber-200 mb-3">
+              检测到您是首次登录系统。为了保障账户安全，请立即修改默认密码（当前为 <code class="px-2 py-0.5 bg-amber-200 dark:bg-amber-800 rounded text-xs font-mono">admin</code>）。
+            </p>
+            <ul class="text-xs text-amber-700 dark:text-amber-300 space-y-1 list-disc list-inside">
+              <li>建议使用至少 8 位包含大小写字母和数字的强密码</li>
+              <li>修改密码后，此提示将自动消失</li>
+            </ul>
+          </div>
+        </div>
+        
         <div class="admin-section-header">
           <div class="admin-title-wrap">
             <div class="admin-title-icon">

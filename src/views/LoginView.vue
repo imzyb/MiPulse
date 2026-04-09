@@ -21,8 +21,11 @@ const handleLogin = async () => {
   isLoading.value = true;
   error.value = '';
   
-  const success = await auth.login(username.value, password.value);
-  if (success) {
+  const result = await auth.login(username.value, password.value);
+  if (result === 'must_change_password') {
+    // 首次登录，强制跳转到设置页面改密
+    router.push('/admin/settings');
+  } else if (result === true) {
     router.push('/admin');
   } else {
     error.value = '登录失败，请检查密码';

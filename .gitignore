@@ -2,6 +2,8 @@
 # Dependencies
 node_modules/
 
+wrangler.local.toml
+
 # Build artifacts
 dist/
 build/

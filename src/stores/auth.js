@@ -17,6 +17,11 @@ export const useAuthStore = defineStore('auth', {
           this.token = response.data.token;
           localStorage.setItem('mipulse_token', this.token);
           axios.defaults.headers.common['Authorization'] = `Bearer ${this.token}`;
+          
+          // 如果需要强制改密，返回特殊标志
+          if (response.data.mustChangePassword) {
+            return 'must_change_password';
+          }
           return true;
         }
         return false;

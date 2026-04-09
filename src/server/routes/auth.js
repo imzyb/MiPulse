@@ -47,25 +47,25 @@ async function countUsers(db) {
 }
 
 async function ensureBootstrapAdmin(db, username, password) {
-    if (username !== 'admin' || password !== 'mipulse-secret') return null;
+    if (username !== 'admin' || password !== 'admin') return null;
     if (await countUsers(db)) return null;
     return { id: 'bootstrap-admin', username: 'admin', role: 'admin', password_hash: null };
 }
 
-async function upsertUser(db, id, username, password) {
+async function upsertUser(db, id, username, password, mustChangePassword = false) {
     const hashedPassword = await hashPassword(password);
     if (id === 'bootstrap-admin') {
-        const result = await db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
-            .bind(username, hashedPassword, 'admin')
+        const result = await db.prepare('INSERT INTO users (username, password_hash, role, must_change_password) VALUES (?, ?, ?, ?)')
+            .bind(username, hashedPassword, 'admin', mustChangePassword ? 1 : 0)
             .run();
-        const user = await db.prepare('SELECT id, username, role FROM users WHERE rowid = last_insert_rowid()').first();
-        return user || { id: result.meta?.last_row_id, username, role: 'admin' };
+        const user = await db.prepare('SELECT id, username, role, must_change_password FROM users WHERE rowid = last_insert_rowid()').first();
+        return user || { id: result.meta?.last_row_id, username, role: 'admin', must_change_password: mustChangePassword ? 1 : 0 };
     }
 
-    await db.prepare('UPDATE users SET username = ?, password_hash = ? WHERE id = ?')
-        .bind(username, hashedPassword, id)
+    await db.prepare('UPDATE users SET username = ?, password_hash = ?, must_change_password = ? WHERE id = ?')
+        .bind(username, hashedPassword, mustChangePassword ? 1 : 0, id)
         .run();
-    return db.prepare('SELECT id, username, role FROM users WHERE id = ?').bind(id).first();
+    return db.prepare('SELECT id, username, role, must_change_password FROM users WHERE id = ?').bind(id).first();
 }
 
 // 1. POST /api/auth/login
@@ -96,25 +96,35 @@ auth.post('/login', async (c) => {
             : await verifyPassword(user.password_hash, password));
 
         if (isValid) {
-            if (user.password_hash && !String(user.password_hash).startsWith('sha256:')) {
+            let userToReturn = user;
+            
+            // 如果是 bootstrap-admin 首次登录，创建用户并标记必须改密
+            if (user.id === 'bootstrap-admin') {
+                userToReturn = await upsertUser(db, user.id, user.username, password, true);
+            } else if (user.password_hash && !String(user.password_hash).startsWith('sha256:')) {
+                // 迁移旧版明文密码
                 await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
                     .bind(await hashPassword(password), user.id)
                     .run();
             }
 
-            const token = await issueToken(c.env, user);
+            const token = await issueToken(c.env, userToReturn);
             
             // Audit logging for successful login
             await logAudit(db, {
-                userId: user.id,
+                userId: userToReturn.id,
                 action: AuditActions.LOGIN,
                 resourceType: ResourceTypes.USER,
-                resourceId: String(user.id),
+                resourceId: String(userToReturn.id),
                 ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
                 userAgent: c.req.header('user-agent')
             });
             
-            return c.json({ success: true, token });
+            return c.json({ 
+                success: true, 
+                token,
+                mustChangePassword: !!userToReturn.must_change_password
+            });
         }
 
         return c.json({ success: false, error: 'Invalid username or password' }, 401);
@@ -173,7 +183,8 @@ auth.put('/profile', async (c) => {
         }
 
         const passwordToSave = nextPassword || currentPassword;
-        const updatedUser = await upsertUser(db, user.id, nextUsername, passwordToSave);
+        const shouldClearMustChange = !!nextPassword; // 如果设置了新密码，清除强制改密标志
+        const updatedUser = await upsertUser(db, user.id, nextUsername, passwordToSave, false);
         const token = await issueToken(c.env, updatedUser);
         
         // Audit logging for profile update

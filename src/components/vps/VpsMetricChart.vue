@@ -93,9 +93,13 @@ const getPath = (points) => {
   let path = '';
   let inSegment = false;
   points.forEach((p, i) => {
-    const val = (p === null || p === undefined) ? maxValue.value : p;
+    // 跳过 null/undefined 值，断开路径而不是跳到最大值
+    if (p === null || p === undefined) {
+      inSegment = false;
+      return;
+    }
     const x = PAD_LEFT + (i / (points.length - 1 || 1)) * PLOT_W;
-    const y = PAD_TOP + PLOT_H - (val / maxValue.value) * PLOT_H;
+    const y = PAD_TOP + PLOT_H - (p / maxValue.value) * PLOT_H;
     path += inSegment ? ` L ${x} ${y}` : ` M ${x} ${y}`;
     inSegment = true;
   });

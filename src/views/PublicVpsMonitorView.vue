@@ -247,15 +247,29 @@ const getLatencyPoints = (nodeId) => {
         const checks = s.checks || [];
         if (!checks.length) return null;
 
-        // 首选使用已命名的探测项再取首个有效延迟
-        const namedCheck = checks.find(c => c.name && c.latencyMs !== null && c.latencyMs !== undefined && c.latencyMs > 0);
-        if (namedCheck) return namedCheck.latencyMs;
+        // 明确排除 Average 聚合数据，只取具体目标的延迟
+        const validChecks = checks.filter(c => 
+            c.name && 
+            !String(c.name).toLowerCase().includes('average') &&
+            c.latencyMs !== null && 
+            c.latencyMs !== undefined && 
+            c.latencyMs > 0
+        );
+        
+        if (validChecks.length > 0) {
+            // 返回第一个有效目标的延迟
+            return validChecks[0].latencyMs;
+        }
 
-        const nonZeroCheck = checks.find(c => c.latencyMs !== null && c.latencyMs !== undefined && c.latencyMs > 0);
+        // 如果没有命名检查项，尝试找任意有效的非零延迟
+        const nonZeroCheck = checks.find(c => 
+            c.latencyMs !== null && 
+            c.latencyMs !== undefined && 
+            c.latencyMs > 0
+        );
         if (nonZeroCheck) return nonZeroCheck.latencyMs;
 
-        const firstCheck = checks[0];
-        return (firstCheck?.latencyMs !== null && firstCheck?.latencyMs !== undefined) ? firstCheck.latencyMs : null;
+        return null;
     });
 };
 
