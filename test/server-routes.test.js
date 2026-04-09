@@ -5,7 +5,8 @@ import { jwt } from 'hono/jwt';
 import { sign } from 'hono/jwt';
 import worker, { handleScheduled } from '../src/server/index.js';
 import auth, { hashPassword, verifyPassword } from '../src/server/routes/auth.js';
-import vps, { normalizeReportTimestamp, safeJsonParse, executeTargetCheck, sendTestNotifications } from '../src/server/routes/vps.js';
+import vps, { normalizeReportTimestamp, safeJsonParse, executeTargetCheck, buildTargetUrl } from '../src/server/routes/vps.js';
+import { sendTestNotifications } from '../src/services/notification.js';
 
 class MockStatement {
   constructor(handler, sql) {

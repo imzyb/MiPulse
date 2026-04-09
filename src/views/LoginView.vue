@@ -96,4 +96,25 @@ const handleLogin = async () => {
 .text-primary-600 {
   color: #2563eb;
 }
+
+/* Enhanced focus states for better accessibility */
+input:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  @apply outline-none ring-2 ring-primary-500 ring-offset-2 dark:ring-offset-gray-900;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Better selection color */
+::selection {
+  @apply bg-primary-500/30 text-primary-900;
+}
+
+.dark ::selection {
+  @apply bg-primary-500/40 text-white;
+}
 </style>

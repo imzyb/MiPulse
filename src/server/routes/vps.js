@@ -1,4 +1,15 @@
 import { Hono } from 'hono';
+import { sendTestNotifications, nowIso } from '../../services/notification.js';
+import { logAudit, AuditActions, ResourceTypes } from '../../services/audit.js';
+import { 
+    createNodeSchema, 
+    updateNodeSchema, 
+    createTargetSchema, 
+    updateTargetSchema, 
+    checkTargetSchema,
+    settingsSchema,
+    validateBody 
+} from '../validators.js';
 
 const vps = new Hono();
 const PUBLIC_NODES_CACHE_KEY = 'cache:public_nodes';
@@ -20,7 +31,6 @@ let recentNetworkSampleWrites = new Map();
 let lastPublicCacheInvalidationAt = 0;
 
 // --- Utilities ---
-function nowIso() { return new Date().toISOString(); }
 function isoFromMs(ms) { return new Date(ms).toISOString(); }
 
 function getNumericTrafficValue(value) {
@@ -295,7 +305,7 @@ async function getNotificationConfig(db) {
     };
 }
 
-function buildTargetUrl(target) {
+export function buildTargetUrl(target) {
     const scheme = target.scheme || (target.type === 'http' ? 'https' : 'https');
     const portPart = target.port ? `:${target.port}` : '';
     const path = target.path || '/';
@@ -341,85 +351,6 @@ export async function executeTargetCheck(target, fetchImpl = fetch) {
             error: error?.message || 'Probe failed'
         };
     }
-}
-
-async function sendTelegramNotification(config, text, fetchImpl = fetch) {
-    const response = await fetchImpl(`https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            chat_id: config.telegram.chatId,
-            text
-        })
-    });
-    if (!response.ok) {
-        throw new Error(`Telegram request failed with ${response.status}`);
-    }
-    return { channel: 'telegram' };
-}
-
-async function sendWebhookNotification(config, text, fetchImpl = fetch) {
-    const response = await fetchImpl(config.webhook.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            source: 'MiPulse',
-            type: 'test',
-            message: text,
-            timestamp: nowIso()
-        })
-    });
-    if (!response.ok) {
-        throw new Error(`Webhook request failed with ${response.status}`);
-    }
-    return { channel: 'webhook' };
-}
-
-async function sendAppPushNotification(config, text, fetchImpl = fetch) {
-    const response = await fetchImpl('https://www.pushplus.plus/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            token: config.pushplus.token,
-            title: 'MiPulse Test Notification',
-            content: text,
-            template: 'txt'
-        })
-    });
-    if (!response.ok) {
-        throw new Error(`App push request failed with ${response.status}`);
-    }
-
-    const payload = await response.json().catch(() => null);
-    if (payload && payload.code && payload.code !== 200) {
-        throw new Error(payload.msg || 'App push rejected the request');
-    }
-    return { channel: 'appPush' };
-}
-
-export async function sendTestNotifications(config, fetchImpl = fetch) {
-    const text = `MiPulse test notification\nTime: ${nowIso()}`;
-    const jobs = [];
-
-    if (config.notificationEnabled && config.telegram?.enabled && config.telegram?.botToken && config.telegram?.chatId) {
-        jobs.push(sendTelegramNotification(config, text, fetchImpl));
-    }
-    if (config.notificationEnabled && config.webhook?.enabled && config.webhook?.url) {
-        jobs.push(sendWebhookNotification(config, text, fetchImpl));
-    }
-    if (config.notificationEnabled && config.pushplus?.enabled && config.pushplus?.token) {
-        jobs.push(sendAppPushNotification(config, text, fetchImpl));
-    }
-
-    const results = await Promise.allSettled(jobs);
-    const channels = results.map((result) => result.status === 'fulfilled'
-        ? { ok: true, channel: result.value.channel }
-        : { ok: false, error: result.reason?.message || 'Notification failed' });
-    return {
-        successCount: channels.filter((item) => item.ok).length,
-        failureCount: channels.filter((item) => !item.ok).length,
-        channels
-    };
 }
 
 async function getProbeNode(db, rawId, rawSecret) {
@@ -555,13 +486,48 @@ vps.get('/nodes', async (c) => {
 vps.post('/nodes', async (c) => {
     const db = c.env.MIPULSE_DB;
     const body = await c.req.json();
-    const id = crypto.randomUUID(); const secret = body.secret || generateUnambiguousSecret(12);
+    
+    // Validate request body
+    const validation = validateBody(body, createNodeSchema);
+    if (!validation.success) {
+        return c.json({ 
+            success: false, 
+            error: 'Validation failed',
+            details: validation.errors 
+        }, 400);
+    }
+    
+    const data = validation.data;
+    const id = crypto.randomUUID(); 
+    const secret = data.secret || generateUnambiguousSecret(12);
+    
     try {
-        await db.prepare('INSERT INTO vps_nodes (id, name, tag, group_tag, region, enabled, secret, status) VALUES (?, ?, ?, ?, ?, ?, ?, "offline")').bind(id, body.name, body.tag || '', body.groupTag || 'Default', body.region || 'Global', body.enabled ? 1 : 0, secret).run();
+        await db.prepare('INSERT INTO vps_nodes (id, name, tag, group_tag, region, enabled, secret, status) VALUES (?, ?, ?, ?, ?, ?, ?, "offline")')
+            .bind(id, data.name, data.tag || '', data.groupTag || 'Default', data.region || 'Global', data.enabled ? 1 : 0, secret)
+            .run();
+        
+        // Audit logging
+        const payload = c.get('jwtPayload');
+        await logAudit(db, {
+            userId: payload?.id,
+            action: AuditActions.CREATE_NODE,
+            resourceType: ResourceTypes.VPS_NODE,
+            resourceId: id,
+            newValue: { name: data.name, tag: data.tag, groupTag: data.groupTag, region: data.region },
+            ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+            userAgent: c.req.header('user-agent')
+        });
+        
         invalidateAdminNodesCache();
         await invalidatePublicNodesCache(c.env.MIPULSE_KV, true);
-        return c.json({ success: true, node: { id, secret }, guide: buildGuide(new URL(c.req.url).origin, id, secret) });
-    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+        return c.json({ 
+            success: true, 
+            node: { id, secret }, 
+            guide: buildGuide(new URL(c.req.url).origin, id, secret) 
+        });
+    } catch (err) { 
+        return c.json({ success: false, error: err.message }, 500); 
+    }
 });
 
 vps.get('/nodes/:id', async (c) => {
@@ -575,14 +541,40 @@ vps.get('/nodes/:id', async (c) => {
 });
 
 vps.put('/nodes/:id', async (c) => {
-    const db = c.env.MIPULSE_DB; const id = c.req.param('id'); const body = await c.req.json(); const apiOrigin = new URL(c.req.url).origin;
+    const db = c.env.MIPULSE_DB; 
+    const id = c.req.param('id'); 
+    const body = await c.req.json(); 
+    const apiOrigin = new URL(c.req.url).origin;
+    
+    // Validate request body
+    const validation = validateBody(body, updateNodeSchema);
+    if (!validation.success) {
+        return c.json({ 
+            success: false, 
+            error: 'Validation failed',
+            details: validation.errors 
+        }, 400);
+    }
+    
+    const data = validation.data;
+    
     try {
-        if (body.resetSecret) { const newSecret = generateUnambiguousSecret(12); await db.prepare("UPDATE vps_nodes SET secret = ?, updated_at = datetime('now') WHERE id = ?").bind(newSecret, id).run(); return c.json({ success: true, guide: buildGuide(apiOrigin, id, newSecret) }); }
-        await db.prepare('UPDATE vps_nodes SET name = ?, tag = ?, group_tag = ?, region = ?, enabled = ?, secret = ?, network_monitor_enabled = ?, updated_at = datetime("now") WHERE id = ?').bind(body.name, body.tag || '', body.groupTag || 'Default', body.region || 'Global', body.enabled ? 1 : 0, body.secret, body.networkMonitorEnabled ? 1 : 0, id).run();
+        if (data.resetSecret) { 
+            const newSecret = generateUnambiguousSecret(12); 
+            await db.prepare("UPDATE vps_nodes SET secret = ?, updated_at = datetime('now') WHERE id = ?")
+                .bind(newSecret, id)
+                .run(); 
+            return c.json({ success: true, guide: buildGuide(apiOrigin, id, newSecret) }); 
+        }
+        await db.prepare('UPDATE vps_nodes SET name = ?, tag = ?, group_tag = ?, region = ?, enabled = ?, secret = ?, network_monitor_enabled = ?, updated_at = datetime("now") WHERE id = ?')
+            .bind(data.name, data.tag || '', data.groupTag || 'Default', data.region || 'Global', data.enabled ? 1 : 0, data.secret, data.networkMonitorEnabled ? 1 : 0, id)
+            .run();
         invalidateAdminNodesCache();
         await invalidatePublicNodesCache(c.env.MIPULSE_KV, true);
-        return c.json({ success: true, guide: buildGuide(apiOrigin, id, body.secret) });
-    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+        return c.json({ success: true, guide: buildGuide(apiOrigin, id, data.secret) });
+    } catch (err) { 
+        return c.json({ success: false, error: err.message }, 500); 
+    }
 });
 
 vps.post('/nodes/:id/reset-traffic', async (c) => {
@@ -597,8 +589,37 @@ vps.post('/nodes/:id/reset-traffic', async (c) => {
 });
 
 vps.delete('/nodes/:id', async (c) => {
-    const db = c.env.MIPULSE_DB; const id = c.req.param('id');
-    try { await db.batch([ db.prepare('DELETE FROM vps_nodes WHERE id = ?').bind(id), db.prepare('DELETE FROM vps_reports WHERE node_id = ?').bind(id), db.prepare('DELETE FROM vps_network_targets WHERE node_id = ?').bind(id) ]); invalidateAdminNodesCache(); await invalidatePublicNodesCache(c.env.MIPULSE_KV, true); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    const db = c.env.MIPULSE_DB; 
+    const id = c.req.param('id');
+    const payload = c.get('jwtPayload');
+    
+    try {
+        // Get node info before deletion for audit log
+        const node = await db.prepare('SELECT name, tag FROM vps_nodes WHERE id = ?').bind(id).first();
+        
+        await db.batch([ 
+            db.prepare('DELETE FROM vps_nodes WHERE id = ?').bind(id), 
+            db.prepare('DELETE FROM vps_reports WHERE node_id = ?').bind(id), 
+            db.prepare('DELETE FROM vps_network_targets WHERE node_id = ?').bind(id) 
+        ]);
+        
+        // Audit logging
+        await logAudit(db, {
+            userId: payload?.id,
+            action: AuditActions.DELETE_NODE,
+            resourceType: ResourceTypes.VPS_NODE,
+            resourceId: id,
+            oldValue: node,
+            ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+            userAgent: c.req.header('user-agent')
+        });
+        
+        invalidateAdminNodesCache(); 
+        await invalidatePublicNodesCache(c.env.MIPULSE_KV, true); 
+        return c.json({ success: true }); 
+    } catch (err) { 
+        return c.json({ success: false, error: err.message }, 500); 
+    }
 });
 
 vps.get('/targets', async (c) => {
@@ -624,42 +645,102 @@ vps.get('/targets', async (c) => {
 });
 
 vps.post('/targets', async (c) => {
-    const db = c.env.MIPULSE_DB; const body = await c.req.json(); try { await db.prepare('INSERT INTO vps_network_targets (id, node_id, type, target, name, enabled) VALUES (?, ?, ?, ?, ?, 1)').bind(crypto.randomUUID(), body.nodeId, body.type, body.target, body.name).run(); invalidateTargetsCache(body.nodeId); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    const db = c.env.MIPULSE_DB; 
+    const body = await c.req.json(); 
+    
+    // Validate request body
+    const validation = validateBody(body, createTargetSchema);
+    if (!validation.success) {
+        return c.json({ 
+            success: false, 
+            error: 'Validation failed',
+            details: validation.errors 
+        }, 400);
+    }
+    
+    const data = validation.data;
+    
+    try { 
+        await db.prepare('INSERT INTO vps_network_targets (id, node_id, type, target, name, enabled) VALUES (?, ?, ?, ?, ?, 1)')
+            .bind(crypto.randomUUID(), data.nodeId, data.type, data.target, data.name)
+            .run(); 
+        invalidateTargetsCache(data.nodeId); 
+        return c.json({ success: true }); 
+    } catch (err) { 
+        return c.json({ success: false, error: err.message }, 500); 
+    }
 });
 
 vps.put('/targets/:id', async (c) => {
     const db = c.env.MIPULSE_DB;
     const id = c.req.param('id');
     const body = await c.req.json();
+    
+    // Validate request body
+    const validation = validateBody(body, updateTargetSchema);
+    if (!validation.success) {
+        return c.json({ 
+            success: false, 
+            error: 'Validation failed',
+            details: validation.errors 
+        }, 400);
+    }
+    
+    const data = validation.data;
+    
     try {
         const existing = await db.prepare('SELECT * FROM vps_network_targets WHERE id = ?').bind(id).first();
         if (!existing) return c.json({ success: false, error: 'Target not found' }, 404);
         const next = {
-            type: body.type ?? existing.type,
-            target: body.target ?? existing.target,
-            name: body.name ?? existing.name,
-            scheme: body.scheme ?? existing.scheme,
-            port: body.port ?? existing.port,
-            path: body.path ?? existing.path,
-            enabled: body.enabled === undefined ? existing.enabled : (body.enabled ? 1 : 0)
+            type: data.type ?? existing.type,
+            target: data.target ?? existing.target,
+            name: data.name ?? existing.name,
+            scheme: data.scheme ?? existing.scheme,
+            port: data.port ?? existing.port,
+            path: data.path ?? existing.path,
+            enabled: data.enabled === undefined ? existing.enabled : (data.enabled ? 1 : 0)
         };
         await db.prepare('UPDATE vps_network_targets SET type = ?, target = ?, name = ?, scheme = ?, port = ?, path = ?, enabled = ?, updated_at = datetime("now") WHERE id = ?')
             .bind(next.type, next.target, next.name, next.scheme, next.port, next.path, next.enabled, id)
             .run();
         invalidateTargetsCache(existing.node_id);
         return c.json({ success: true, data: { id, ...next, enabled: !!next.enabled } });
-    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    } catch (err) { 
+        return c.json({ success: false, error: err.message }, 500); 
+    }
 });
 
 vps.delete('/targets/:id', async (c) => {
-    const db = c.env.MIPULSE_DB; try { const targetId = c.req.param('id'); const existing = await db.prepare('SELECT * FROM vps_network_targets WHERE id = ?').bind(targetId).first(); await db.prepare('DELETE FROM vps_network_targets WHERE id = ?').bind(targetId).run(); invalidateTargetsCache(existing?.node_id); return c.json({ success: true }); } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    const db = c.env.MIPULSE_DB; 
+    try { 
+        const targetId = c.req.param('id'); 
+        const existing = await db.prepare('SELECT * FROM vps_network_targets WHERE id = ?').bind(targetId).first(); 
+        await db.prepare('DELETE FROM vps_network_targets WHERE id = ?').bind(targetId).run(); 
+        invalidateTargetsCache(existing?.node_id); 
+        return c.json({ success: true }); 
+    } catch (err) { 
+        return c.json({ success: false, error: err.message }, 500); 
+    }
 });
 
 vps.post('/targets/check', async (c) => {
     const db = c.env.MIPULSE_DB;
     const body = await c.req.json();
+    
+    // Validate request body
+    const validation = validateBody(body, checkTargetSchema);
+    if (!validation.success) {
+        return c.json({ 
+            success: false, 
+            error: 'Validation failed',
+            details: validation.errors 
+        }, 400);
+    }
+    
+    const data = validation.data;
+    
     try {
-        const target = await db.prepare('SELECT * FROM vps_network_targets WHERE id = ? AND node_id = ?').bind(body.targetId, body.nodeId).first();
+        const target = await db.prepare('SELECT * FROM vps_network_targets WHERE id = ? AND node_id = ?').bind(data.targetId, data.nodeId).first();
         if (!target) return c.json({ success: false, error: 'Target not found' }, 404);
         if (body.nodeId !== 'global') {
             await db.prepare('UPDATE vps_network_targets SET force_check_at = datetime("now"), updated_at = datetime("now") WHERE id = ?')
@@ -849,20 +930,57 @@ vps.get('/settings', async (c) => {
 });
 
 vps.post('/settings', async (c) => {
-    const db = c.env.MIPULSE_DB; const body = await c.req.json(); 
-    try { 
-        const normalizedBody = body.vpsMonitor ? { vps_monitor_json: body.vpsMonitor } : body;
-        const queries = Object.entries(normalizedBody).map(([k, v]) => { 
-            const val = typeof v === 'object' ? JSON.stringify(v) : String(v); 
-            return db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime("now"))').bind(k, val); 
-        }); 
-        await db.batch(queries); 
+    const db = c.env.MIPULSE_DB; 
+    const body = await c.req.json();
+    const payload = c.get('jwtPayload');
+    
+    // Validate request body
+    const validation = validateBody(body, settingsSchema);
+    if (!validation.success) {
+        return c.json({ 
+            success: false, 
+            error: 'Validation failed',
+            details: validation.errors 
+        }, 400);
+    }
+    
+    try {
+        const normalizedBody = validation.data.vpsMonitor ? { vps_monitor_json: validation.data.vpsMonitor } : validation.data;
+        
+        // Get old settings for audit log
+        const oldSettings = {};
+        for (const key of Object.keys(normalizedBody)) {
+            const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first();
+            if (row) {
+                oldSettings[key] = safeJsonParse(row.value, row.value);
+            }
+        }
+        
+        const queries = Object.entries(normalizedBody).map(([k, v]) => {
+            const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+            return db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime("now"))').bind(k, val);
+        });
+        await db.batch(queries);
+        
+        // Audit logging
+        await logAudit(db, {
+            userId: payload?.id,
+            action: AuditActions.UPDATE_SETTINGS,
+            resourceType: ResourceTypes.SETTING,
+            oldValue: oldSettings,
+            newValue: normalizedBody,
+            ipAddress: c.req.header('x-forwarded-for') || c.req.header('x-real-ip'),
+            userAgent: c.req.header('user-agent')
+        });
+        
         // Invalidate public cache
         monitorSettingsCache = null;
         networkSettingsCache = null;
         await invalidatePublicNodesCache(c.env.MIPULSE_KV, true);
-        return c.json({ success: true, data: normalizedBody, settings: normalizedBody }); 
-    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+        return c.json({ success: true, data: normalizedBody, settings: normalizedBody });
+    } catch (err) { 
+        return c.json({ success: false, error: err.message }, 500); 
+    }
 });
 
 vps.post('/notifications/test', async (c) => {
