@@ -35,6 +35,7 @@
     - 第一次部署完成后，进入项目的 **Settings -> Bindings**。
     - 在 **D1 database bindings** 中添加名称 `MIPULSE_DB`，并选择你的 D1 数据库。
     - 在 **KV namespace bindings** 中添加名称 `MIPULSE_KV`，并选择你的 KV 命名空间。
+    - 在 **Variables** (环境变量) 中添加名称 `JWT_SECRET`，并填入一个随机的长字符串作为加密密钥。
     - 重新点击 **Deployments -> Retry deployment**。
 
 > [!TIP]
