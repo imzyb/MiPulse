@@ -53,9 +53,19 @@ function computeTrafficDelta(currentValue, previousValue, hasPreviousReport) {
     return current;
 }
 
-function shouldStoreReport(reportedAt, lastSeenAt, reportStoreIntervalMinutes) {
-    if (!lastSeenAt) return true;
-    const intervalMinutes = Math.max(1, Number(reportStoreIntervalMinutes) || 5);
+function shouldStoreReport(report, lastReport, reportedAt, lastSeenAt, reportStoreIntervalMinutes) {
+    if (!lastSeenAt || !lastReport) return true;
+    
+    const cpuDelta = Math.abs(Number(report.cpuPercent || 0) - Number(lastReport.cpuPercent || 0));
+    const memDelta = Math.abs(Number(report.memPercent || 0) - Number(lastReport.memPercent || 0));
+    const latencyDelta = Math.abs(Number(report.latencyMs || 0) - Number(lastReport.latencyMs || 0));
+    const lossDelta = Math.abs(Number(report.lossPercent || 0) - Number(lastReport.lossPercent || 0));
+    
+    // Anomaly detection: Store immediately if there's a significant spike
+    if (cpuDelta > 20 || memDelta > 20 || latencyDelta > 50 || lossDelta > 0) return true;
+
+    // Steady state: back off and use 3x the configured interval
+    const intervalMinutes = Math.max(1, Number(reportStoreIntervalMinutes) || 5) * 3;
     const deltaMs = new Date(reportedAt).getTime() - new Date(lastSeenAt).getTime();
     if (!Number.isFinite(deltaMs) || deltaMs < 0) return true;
     return deltaMs >= intervalMinutes * 60 * 1000;
@@ -203,16 +213,8 @@ function shouldPersistNetworkSample(check, intervalMin) {
 
 async function invalidatePublicNodesCache(kv, force = false) {
     invalidatePublicNodesMemoryCache();
-    if (!kv) return;
-    const now = Date.now();
-    if (!force && now - lastPublicCacheInvalidationAt < KV_INVALIDATION_THROTTLE_MS) {
-        return;
-    }
-    lastPublicCacheInvalidationAt = now;
-    try {
-        await kv.delete(PUBLIC_NODES_CACHE_KEY);
-    } catch {
-    }
+    // Intentionally removed kv.delete() to preserve Cloudflare KV Free Tier daily delete limits (max 1000/day).
+    // The public page will instead rely on natural expiration of the cache TTL.
 }
 
 function normalizeNodeList(rows) {
@@ -399,6 +401,7 @@ async function enrichReportChecks(db, nodeId, checks) {
 // --- Routes ---
 
 vps.get('/public', async (c) => {
+    c.header('Cache-Control', 'public, max-age=60');
     const db = c.env.MIPULSE_DB;
     const kv = c.env.MIPULSE_KV;
     const memoryCached = readPublicNodesMemoryCache();
@@ -412,6 +415,7 @@ vps.get('/public', async (c) => {
                 return c.json(payload);
             }
         } catch {
+            // ignore kv error
         }
     }
     try {
@@ -445,51 +449,85 @@ vps.post('/report', async (c) => {
     const db = c.env.MIPULSE_DB;
     const rawBody = await c.req.text();
     let payload; try { payload = JSON.parse(rawBody); } catch(e) { return c.json({ error: 'Invalid JSON' }, 400); }
-    const report = payload?.report || payload;
-    const nodeId = (c.req.header('x-node-id') || payload?.nodeId || payload?.id || '').trim();
-    const secret = (c.req.header('x-node-secret') || payload?.nodeSecret || payload?.secret || '').trim();
+    const reportsArr = Array.isArray(payload?.reports) ? payload.reports : [payload?.report || payload];
+    if (reportsArr.length === 0) return c.json({ error: 'Empty reports' }, 400);
+
+    const firstReport = reportsArr[0];
+    const nodeId = (c.req.header('x-node-id') || firstReport?.nodeId || firstReport?.id || '').trim();
+    const secret = (c.req.header('x-node-secret') || firstReport?.nodeSecret || firstReport?.secret || '').trim();
     if (!nodeId) return c.json({ error: 'Missing node id' }, 400);
     const node = await db.prepare('SELECT id, secret, last_seen_at AS lastSeenAt, last_report_json AS lastReport FROM vps_nodes WHERE LOWER(id) = LOWER(?)').bind(nodeId).first();
     if (!node) return c.json({ error: 'Node not found' }, 404);
     if (node.secret && !secret) return c.json({ error: 'Missing secret' }, 401);
     if (node.secret !== secret) return c.json({ error: 'Invalid secret' }, 401);
-    report.checks = await enrichReportChecks(db, node.id, report.checks);
-    const reportedAt = normalizeReportTimestamp(report.ts || report.timestamp, nowIso());
-    report.timestamp = reportedAt;
-    const lastRep = safeJsonParse(node.lastReport, {});
     const hasPreviousReport = !!node.lastSeenAt && !!node.lastReport;
-    const rxDelta = computeTrafficDelta(report.traffic?.rx, lastRep.traffic?.rx, hasPreviousReport);
-    const txDelta = computeTrafficDelta(report.traffic?.tx, lastRep.traffic?.tx, hasPreviousReport);
-    const timeDelta = (new Date(reportedAt).getTime() - (node.lastSeenAt ? new Date(node.lastSeenAt).getTime() : 0)) / 1000;
-    const monitorSettings = await getMonitorSettings(db);
-    const storeDetailedReport = shouldStoreReport(reportedAt, node.lastSeenAt, monitorSettings.reportStoreIntervalMinutes);
-    if (!report.traffic) report.traffic = { rx: 0, tx: 0 };
-    report.traffic.rxSpeed = (timeDelta > 0 && timeDelta < 3600) ? rxDelta / timeDelta : 0;
-    report.traffic.txSpeed = (timeDelta > 0 && timeDelta < 3600) ? txDelta / timeDelta : 0;
+    
+    // Sort reports chronologically
+    reportsArr.sort((a, b) => new Date(normalizeReportTimestamp(a.ts || a.timestamp, nowIso())).getTime() - new Date(normalizeReportTimestamp(b.ts || b.timestamp, nowIso())).getTime());
+    
+    // Calculate total traffic delta using the absolute latest report in the batch vs what we had previously
+    const latestReport = reportsArr[reportsArr.length - 1];
+    const reportedAtLatest = normalizeReportTimestamp(latestReport.ts || latestReport.timestamp, nowIso());
+    latestReport.timestamp = reportedAtLatest;
+    const lastRep = safeJsonParse(node.lastReport, {});
+    
+    const rxDelta = computeTrafficDelta(latestReport.traffic?.rx, lastRep.traffic?.rx, hasPreviousReport);
+    const txDelta = computeTrafficDelta(latestReport.traffic?.tx, lastRep.traffic?.tx, hasPreviousReport);
+    const timeDelta = (new Date(reportedAtLatest).getTime() - (node.lastSeenAt ? new Date(node.lastSeenAt).getTime() : 0)) / 1000;
+    
+    if (!latestReport.traffic) latestReport.traffic = { rx: 0, tx: 0 };
+    latestReport.traffic.rxSpeed = (timeDelta > 0 && timeDelta < 3600) ? rxDelta / timeDelta : 0;
+    latestReport.traffic.txSpeed = (timeDelta > 0 && timeDelta < 3600) ? txDelta / timeDelta : 0;
+    
     const connectingIp = c.req.header('cf-connecting-ip');
     const country = c.req.header('cf-ipcountry') || c.req.raw.cf?.country || null;
-    if (connectingIp) { if (!report.meta) report.meta = {}; report.meta.publicIp = connectingIp; }
-    try {
-        const statements = [
-            db.prepare(`UPDATE vps_nodes SET status = 'online', last_seen_at = ?, last_report_json = ?, total_rx = total_rx + ?, total_tx = total_tx + ?, country_code = COALESCE(?, country_code) WHERE id = ?`).bind(reportedAt, JSON.stringify(report), rxDelta, txDelta, country, node.id)
-        ];
+    if (connectingIp) { if (!latestReport.meta) latestReport.meta = {}; latestReport.meta.publicIp = connectingIp; }
+
+    const monitorSettings = await getMonitorSettings(db);
+    const statements = [];
+    
+    let lastSeenAtForStorage = node.lastSeenAt;
+    let lastRepForStorage = lastRep;
+
+    for (const rep of reportsArr) {
+        rep.checks = await enrichReportChecks(db, node.id, rep.checks);
+        const repAt = normalizeReportTimestamp(rep.ts || rep.timestamp, nowIso());
+        rep.timestamp = repAt;
+
+        const storeDetailedReport = shouldStoreReport(rep, lastRepForStorage, repAt, lastSeenAtForStorage, monitorSettings.reportStoreIntervalMinutes);
         if (storeDetailedReport) {
-            statements.push(db.prepare(`INSERT INTO vps_reports (id, node_id, data, reported_at) VALUES (?, ?, ?, ?)`).bind(crypto.randomUUID(), node.id, JSON.stringify({ 
-                cpuPercent: report.cpuPercent || 0, 
-                memPercent: report.memPercent || 0, 
-                diskPercent: report.diskPercent || 0, 
-                load1: report.load1 || 0, 
-                latencyMs: report.latencyMs || 0,
-                lossPercent: report.lossPercent || 0,
-                checks: report.checks || []
-            }), reportedAt));
+            statements.push(db.prepare(`INSERT INTO vps_reports (id, node_id, data, reported_at) VALUES (?, ?, ?, ?)`).bind(
+                crypto.randomUUID(), node.id, JSON.stringify({ 
+                    cpuPercent: rep.cpuPercent || 0, 
+                    memPercent: rep.memPercent || 0, 
+                    diskPercent: rep.diskPercent || 0, 
+                    load1: rep.load1 || 0, 
+                    latencyMs: rep.latencyMs || 0,
+                    lossPercent: rep.lossPercent || 0,
+                    checks: rep.checks || []
+                }), repAt
+            ));
+            lastRepForStorage = rep;
+            lastSeenAtForStorage = repAt;
         }
+    }
+
+    statements.push(
+        db.prepare(`UPDATE vps_nodes SET status = 'online', last_seen_at = ?, last_report_json = ?, total_rx = total_rx + ?, total_tx = total_tx + ?, country_code = COALESCE(?, country_code) WHERE id = ?`)
+        .bind(reportedAtLatest, JSON.stringify(latestReport), rxDelta, txDelta, country, node.id)
+    );
+
+    try {
         await db.batch(statements);
-        invalidateAdminNodesCache();
-        invalidateAlertsCache();
-        invalidatePublicNodesMemoryCache();
-        return c.json({ success: true, timestamp: reportedAt });
-    } catch (err) { return c.json({ success: false, error: err.message }, 500); }
+    } catch (dbErr) {
+        console.error('[MiPulse Report] D1 Write Exception (Rate Limit or Quota Error):', dbErr.message);
+        // Error Degradation: Silently catch write limit errors but still invalidate caches to allow memory rendering
+    }
+    
+    invalidateAdminNodesCache();
+    invalidateAlertsCache();
+    invalidatePublicNodesMemoryCache();
+    return c.json({ success: true, timestamp: reportedAtLatest });
 });
 
 vps.get('/nodes', async (c) => {
@@ -914,6 +952,7 @@ vps.post('/probe/check-results', async (c) => {
 
 // 6.6 PUBLIC DETAIL: GET /api/vps/public/nodes/:id (History for charts - v1.5.8)
 vps.get('/public/nodes/:id', async (c) => {
+    c.header('Cache-Control', 'public, max-age=120');
     const db = c.env.MIPULSE_DB;
     const id = c.req.param('id');
     try {
@@ -949,6 +988,9 @@ vps.get('/public/nodes/:id', async (c) => {
             return {
                 timestamp: r.timestamp,
                 lossPercent: d.lossPercent || 0,
+                cpu: d.cpu?.usage ?? d.cpuPercent ?? 0,
+                mem: d.mem?.usage ?? d.memPercent ?? 0,
+                disk: d.disk?.usage ?? d.diskPercent ?? 0,
                 checks: d.checks && d.checks.length > 0 ? d.checks : [
                     { name: 'Average Latency', type: 'ICMP', latencyMs: d.latencyMs || 0, lossPercent: d.lossPercent || 0 }
                 ]
@@ -1118,6 +1160,12 @@ vps.get('/install', async (c) => {
         'fetch_targets',
         'last_target_update=$(date +%s)',
         'last_forced_check_poll=$(date +%s)',
+        'last_ping_time=0',
+        'cached_latency_ms=0',
+        'cached_loss_percent=0',
+        'cached_checks_json=""',
+        'batch_payload=""',
+        'batch_count=0',
         '',
         'while true; do',
         '  now=$(date +%s)',
@@ -1159,9 +1207,11 @@ vps.get('/install', async (c) => {
         '  fi',
         '  ',
         '  latency_ms=0; latency_sum=0; latency_count=0; unreachable_count=0; checks_json=""',
-        '  for t in "${targets[@]}"; do',
-        '    # 测量 DNS 解析时间 + ICMP ping 延迟',
-        '    raw_p=$(ping -c 3 -W 2 "$t" 2>&1); ping_out=$(echo "$raw_p" | tail -n 1)',
+        '  now_ping=$(date +%s)',
+        '  if (( now_ping - last_ping_time >= 180 )); then',
+        '    for t in "${targets[@]}"; do',
+        '      # 测量 DNS 解析时间 + ICMP ping 延迟',
+        '      raw_p=$(ping -c 3 -W 2 "$t" 2>&1); ping_out=$(echo "$raw_p" | tail -n 1)',
         '    avg=0; if [[ "$ping_out" == *"/"* ]]; then',
         '      avg=$(echo "$ping_out" | awk -F\'/\' \'{if (NF >= 7) print $(NF-2); else if (NF >= 5) print $(NF-1); else print "0"}\' | sed \'s/[^0-9.]//g\' | tr -d \'\n\r\')',
         '      if [[ -z "$avg" ]] || [[ "$avg" == "0" ]]; then avg=$(echo "$ping_out" | sed \'s/.*= *//\' | cut -d/ -f2 | awk \'{print $1}\' | tr -d " ms" | tr -d \'\n\r\'); fi',
@@ -1182,16 +1232,37 @@ vps.get('/install', async (c) => {
         '      unreachable_count=$((unreachable_count + 1))',
         '      comma=""; [[ ! -z "$checks_json" ]] && comma=","; checks_json="${checks_json}${comma}{\\\"name\\\":\\\"$t\\\",\\\"latencyMs\\\":0,\\\"loss\\\":100}"',
         '    fi',
-        '  done',
-        '  [[ $latency_count -gt 0 ]] && latency_ms=$(awk -v s="$latency_sum" -v c="$latency_count" \'BEGIN {printf "%.2f", s / c}\' 2>/dev/null | tr -d \'\n\r\')',
-        '  target_count=${#targets[@]}',
-        '  loss_percent=0; [[ $target_count -gt 0 ]] && loss_percent=$((100 * unreachable_count / target_count))',
+        '    done',
+        '    [[ $latency_count -gt 0 ]] && latency_ms=$(awk -v s="$latency_sum" -v c="$latency_count" \'BEGIN {printf "%.2f", s / c}\' 2>/dev/null | tr -d \'\n\r\')',
+        '    target_count=${#targets[@]}',
+        '    loss_percent=0; [[ $target_count -gt 0 ]] && loss_percent=$((100 * unreachable_count / target_count))',
+        '    ',
+        '    last_ping_time=$now_ping',
+        '    cached_latency_ms=$latency_ms',
+        '    cached_loss_percent=$loss_percent',
+        '    cached_checks_json=$checks_json',
+        '  else',
+        '    latency_ms=${cached_latency_ms:-0}',
+        '    loss_percent=${cached_loss_percent:-0}',
+        '    checks_json=$cached_checks_json',
+        '  fi',
         '  ',
         '  os_info="Linux"; [[ -f /etc/os-release ]] && os_info=$(. /etc/os-release && echo "$PRETTY_NAME")',
         '  os_pretty=$(echo "$os_info" | tr -d \'"\' | tr -d \'\n\r\')',
-        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":${loss_percent:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.7.4\\\"}}"',
-        '  resp=$(curl -sS --connect-timeout 10 -m 30 -X POST "$MIPULSE_URL/api/vps/report" -H "Content-Type: application/json" -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" -d "$json" 2>&1) || true',
-        '  echo "[$(date)] CPU=$cpu_percent MEM=$mem_percent LAT=$latency_ms LOSS=$loss_percent% $resp" >> "$LOG"',
+        '  json="{\\\"cpuPercent\\\":\\\"$cpu_percent\\\",\\\"memPercent\\\":${mem_percent:-0},\\\"diskPercent\\\":${disk_percent:-0},\\\"uptimeSec\\\":${uptime_sec:-0},\\\"load1\\\":\\\"${load1:-0.00}\\\",\\\"latencyMs\\\":${latency_ms:-0},\\\"lossPercent\\\":${loss_percent:-0},\\\"checks\\\":[$checks_json],\\\"traffic\\\":{\\\"rx\\\":${rx:-0},\\\"tx\\\":${tx:-0}},\\\"ts\\\":\\\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\\\",\\\"meta\\\":{\\\"os\\\":\\\"$os_pretty\\\",\\\"version\\\":\\\"vBash-1.7.5\\\"}}"',
+        '  ',
+        '  if [[ -z "$batch_payload" ]]; then batch_payload="$json"; else batch_payload="$batch_payload,$json"; fi',
+        '  batch_count=$((batch_count + 1))',
+        '  ',
+        '  if (( batch_count >= 3 )); then',
+        '    payload="{\\\"reports\\\":[$batch_payload]}"',
+        '    resp=$(curl -sS --connect-timeout 10 -m 30 -X POST "$MIPULSE_URL/api/vps/report" -H "Content-Type: application/json" -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" -d "$payload" 2>&1) || true',
+        '    echo "[$(date)] Sent batch ($batch_count). CPU=$cpu_percent MEM=$mem_percent LAT=$latency_ms LOSS=$loss_percent% $resp" >> "$LOG"',
+        '    batch_payload=""',
+        '    batch_count=0',
+        '  else',
+        '    echo "[$(date)] Buffered. CPU=$cpu_percent MEM=$mem_percent LAT=$latency_ms (Queue=$batch_count/3)" >> "$LOG"',
+        '  fi',
         '  # 日志轮转：每小时或超过 5000 行时执行',
         '  now=$(date +%s)',
         '  log_lines=$(wc -l < "$LOG" 2>/dev/null || echo 0)',
@@ -1204,9 +1275,9 @@ vps.get('/install', async (c) => {
     ].join('\n');
 
     const script = `#!/bin/bash
-echo "# MiPulse Probe Universal Installer (Bash v1.7.4)"
+echo "# MiPulse Probe Universal Installer (Bash v1.7.5)"
 echo "=========================================="
-echo "  MiPulse Universal Bash Probe v1.7.4"
+echo "  MiPulse Universal Bash Probe v1.7.5"
 
 echo "=========================================="
 if [[ $EUID -ne 0 ]]; then echo "Error: must be root"; exit 1; fi

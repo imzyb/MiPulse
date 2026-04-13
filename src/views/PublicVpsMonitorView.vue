@@ -46,7 +46,8 @@ const loadNodeDetail = async (nodeId) => {
         if (result && result.success) {
             nodeHistoryMap.value[nodeId] = {
                 latencySamples: result.networkSamples || [],
-                targetNames: result.targetNames || {}
+                targetNames: result.targetNames || {},
+                targetsById: result.targetsById || {}
             };
         }
     } catch (err) {
@@ -122,7 +123,8 @@ const loadNodes = async (silent = false) => {
                     if (result && result.success) {
                         nodeHistoryMap.value[id] = {
                             latencySamples: result.networkSamples || [],
-                            targetNames: result.targetNames || {}
+                            targetNames: result.targetNames || {},
+                            targetsById: result.targetsById || {}
                         };
                     }
                 });
@@ -312,7 +314,8 @@ const buildLatencyByProtocol = (nodeData) => {
             
             // 只有在当前有效的监控目标列表中的项才显示
             // 解决用户删除监控目标后，其历史数据依然显示在图表上的问题
-            if (!c.targetId && Object.keys(targetNames).length > 0 && !targetNames[rawName]) return;
+            // 同时确保 'Average' 数据始终显示，即使不在 targetNames 列表中
+            if (!c.targetId && Object.keys(targetNames).length > 0 && !targetNames[rawName] && !String(rawName).includes('Average')) return;
             
             const name = targetMeta?.name || targetNames[rawName] || rawName;
             const key = `${type}:${stableKey}`;

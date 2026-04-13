@@ -53,7 +53,10 @@ const maxValue = computed(() => {
   const thresholds = [30, 100, 300, 800, 1500, 3000, 5000];
   let snapped = thresholds.find(t => t >= peak) || 5000;
   
-  return Math.max(snapped, props.max || 100);
+  // 当数据为空或全部为 0 时，回退到 props.max 作为默认刻度
+  // 当有实际数据时，让自适应 snap 逻辑主导 Y 轴范围
+  if (peak === 0) return props.max || 100;
+  return snapped;
 });
 
 const gridLines = computed(() => {

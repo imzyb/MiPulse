@@ -92,15 +92,19 @@ async function loadMonitorSettings(db) {
 }
 
 async function cleanupOldReports(db, reportRetentionDays) {
-    await db.prepare(`DELETE FROM vps_reports WHERE reported_at < datetime('now', ?)`) 
-        .bind(`-${reportRetentionDays} days`)
-        .run();
+    try {
+        await db.prepare(`DELETE FROM vps_reports WHERE id IN (SELECT id FROM vps_reports WHERE reported_at < datetime('now', ?) LIMIT 1000)`) 
+            .bind(`-${reportRetentionDays} days`)
+            .run();
+    } catch {}
 }
 
 async function cleanupOldNetworkSamples(db, keepHistoryDays) {
-    await db.prepare(`DELETE FROM vps_network_samples WHERE reported_at < datetime('now', ?)`) 
-        .bind(`-${keepHistoryDays} days`)
-        .run();
+    try {
+        await db.prepare(`DELETE FROM vps_network_samples WHERE id IN (SELECT id FROM vps_network_samples WHERE reported_at < datetime('now', ?) LIMIT 1000)`) 
+            .bind(`-${keepHistoryDays} days`)
+            .run();
+    } catch {}
 }
 
 async function shouldCreateOfflineAlert(db, nodeId, alertCooldownMinutes) {

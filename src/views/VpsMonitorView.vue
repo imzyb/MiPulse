@@ -9,8 +9,8 @@ import {
 import { formatNetworkSpeed, formatUptime } from '../lib/utils.js';
 import {
   Plus, RefreshCw, Settings, Trash2, Cpu, HardDrive, 
-  ChevronRight, Gauge, Activity, Radio, AlertTriangle,
-  Monitor, ShieldCheck, Globe, Copy
+  Gauge, Activity, Radio, AlertTriangle,
+  Monitor, ShieldCheck, Copy
 } from 'lucide-vue-next';
 import DataGrid from '../components/shared/DataGrid.vue';
 import Modal from '../components/forms/Modal.vue';
@@ -82,13 +82,13 @@ const formState = ref({
 });
 
 const columns = [
-  { key: 'name', title: '节点', sortable: false, align: 'center' },
-  { key: 'groupTag', title: '分组', sortable: false, align: 'center', hideOn: 'sm' },
-  { key: 'bandwidth', title: '实时带宽', sortable: false, align: 'center' },
-  { key: 'status', title: '状态', sortable: false, align: 'center' },
-  { key: 'networkMonitor', title: '网络监测', sortable: false, align: 'center', hideOn: 'md' },
-  { key: 'ipAddress', title: 'IP 地址', sortable: false, align: 'center', hideOn: 'md' },
-  { key: 'actions', title: '管理节点', sortable: false, align: 'center' }
+  { key: 'name', title: '节点', sortable: false, align: 'left', width: '20%' },
+  { key: 'groupTag', title: '分组', sortable: false, align: 'center', width: '12%', hideOn: 'sm' },
+  { key: 'bandwidth', title: '实时带宽', sortable: false, align: 'center', width: '25%' },
+  { key: 'status', title: '状态', sortable: false, align: 'center', width: '12%' },
+  { key: 'networkMonitor', title: '网络检测', sortable: false, align: 'center', width: '12%', hideOn: 'md' },
+  { key: 'ipAddress', title: 'IP 地址', sortable: false, align: 'center', width: '12%', hideOn: 'md' },
+  { key: 'actions', title: '操作', sortable: false, align: 'center', width: '12%' }
 ];
 
 const loadData = async ({ notify = false, silent = false } = {}) => {
@@ -384,7 +384,7 @@ const formatTime = (iso) => {
 <template>
   <div class="admin-page">
     <!-- Premium Stat Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-10 overflow-hidden">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6 overflow-hidden">
       <div class="admin-stat-card group">
         <div class="flex items-center justify-between gap-4">
           <div>
@@ -392,8 +392,8 @@ const formatTime = (iso) => {
             <p class="admin-stat-value">{{ nodes.length }}</p>
             <p class="admin-stat-meta text-primary-500/80">Active Infrastructure</p>
           </div>
-          <div class="w-16 h-16 rounded-3xl bg-primary-500/10 text-primary-600 flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500">
-            <Monitor :size="32" />
+          <div class="w-12 h-12 rounded-2xl bg-primary-500/10 text-primary-600 flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500">
+            <Monitor :size="20" />
           </div>
         </div>
         <div class="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary-500/20 to-transparent"></div>
@@ -406,8 +406,8 @@ const formatTime = (iso) => {
             <p class="admin-stat-value">{{ onlineCount }}</p>
             <p class="admin-stat-meta text-emerald-500/80">{{ nodes.length ? `${Math.round((onlineCount / nodes.length) * 100)}% 在线率` : 'Waiting for connection' }}</p>
           </div>
-          <div class="w-16 h-16 rounded-3xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500">
-            <Radio :size="32" :class="{'animate-pulse': onlineCount > 0}" />
+          <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500">
+            <Radio :size="20" :class="{'animate-pulse': onlineCount > 0}" />
           </div>
         </div>
         <div class="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent"></div>
@@ -420,8 +420,8 @@ const formatTime = (iso) => {
             <p class="admin-stat-value">{{ totalTraffic }}</p>
             <p class="admin-stat-meta text-indigo-500/80">Accumulated Bandwidth</p>
           </div>
-          <div class="w-16 h-16 rounded-3xl bg-indigo-500/10 text-indigo-600 flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500">
-            <Activity :size="32" />
+          <div class="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-600 flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500">
+            <Activity :size="20" />
           </div>
         </div>
         <div class="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-indigo-500/20 to-transparent"></div>
@@ -434,19 +434,19 @@ const formatTime = (iso) => {
             <p class="admin-stat-value" :class="alerts.length ? 'text-rose-500' : ''">{{ alerts.length }}</p>
             <p class="admin-stat-meta" :class="alerts.length ? 'text-rose-500/80' : 'text-gray-400'">{{ alerts.length ? '需要立即处理' : '系统运行平稳' }}</p>
           </div>
-          <div class="w-16 h-16 rounded-3xl flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500"
+          <div class="w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500"
                :class="alerts.length ? 'bg-rose-500/10 text-rose-600' : 'bg-gray-100/50 dark:bg-white/5 text-gray-400'">
-            <AlertTriangle :size="32" />
+            <AlertTriangle :size="20" />
           </div>
         </div>
         <div class="absolute bottom-0 left-0 w-full h-1" :class="alerts.length ? 'bg-gradient-to-r from-transparent via-rose-500/20 to-transparent' : ''"></div>
       </div>
     </div>
 
-    <!-- Cluster Monitor Grid & Sidebar -->
-    <div class="flex flex-col xl:flex-row gap-8">
-      <div class="flex-1 min-w-0">
-        <div class="admin-section-header mb-8">
+    <!-- Cluster Monitor Section (Full Width) -->
+    <div class="space-y-6">
+      <div class="w-full">
+        <div class="admin-section-header mb-6">
           <div class="admin-title-wrap">
             <div class="admin-title-icon">
               <Activity :size="20" />
@@ -496,15 +496,15 @@ const formatTime = (iso) => {
             </template>
 
             <template #column-bandwidth="{ row }">
-              <div class="flex flex-col lg:flex-row items-center gap-2 lg:gap-4 px-2">
-                <div class="flex flex-col items-center lg:items-end">
-                  <span class="text-[9px] font-black uppercase tracking-tighter text-gray-400">Upload</span>
-                  <span class="text-[11px] font-mono font-black text-emerald-500 leading-none">↑ {{ formatNetworkSpeed(row.latest?.traffic?.txSpeed || 0) }}</span>
+              <div class="flex items-center justify-center gap-4 px-1 whitespace-nowrap">
+                <div class="flex flex-col items-end min-w-[70px]">
+                  <span class="text-[8px] font-black uppercase tracking-tighter text-gray-400/80">Up</span>
+                  <span class="text-[10px] font-mono font-black text-emerald-500 leading-none">↑{{ formatNetworkSpeed(row.latest?.traffic?.txSpeed || 0) }}</span>
                 </div>
-                <div class="w-px h-6 bg-gray-100 dark:bg-white/5 hidden lg:block"></div>
-                <div class="flex flex-col items-center lg:items-start">
-                  <span class="text-[9px] font-black uppercase tracking-tighter text-gray-400">Download</span>
-                  <span class="text-[11px] font-mono font-black text-indigo-500 leading-none">↓ {{ formatNetworkSpeed(row.latest?.traffic?.rxSpeed || 0) }}</span>
+                <div class="w-px h-4 bg-gray-100 dark:bg-white/5"></div>
+                <div class="flex flex-col items-start min-w-[70px]">
+                  <span class="text-[8px] font-black uppercase tracking-tighter text-gray-400/80">Down</span>
+                  <span class="text-[10px] font-mono font-black text-indigo-500 leading-none">↓{{ formatNetworkSpeed(row.latest?.traffic?.rxSpeed || 0) }}</span>
                 </div>
               </div>
             </template>
@@ -532,28 +532,28 @@ const formatTime = (iso) => {
               </div>
             </template>
 
-           <template #column-actions="{ row }">
-              <div class="flex items-center justify-end gap-2 pr-4">
-                <button @click="openInstallGuide(row)" class="p-2.5 rounded-xl bg-emerald-500/5 text-emerald-500 hover:bg-emerald-500 text-white transition-all" title="Deploy Probe">
-                  <Monitor :size="14" />
-                </button>
-                <button @click="openDetail(row)" class="p-2.5 rounded-xl bg-primary-500/5 text-primary-600 hover:bg-primary-500 text-white transition-all">
-                  <Activity :size="14" />
-                </button>
-                <button @click="openEdit(row)" class="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-white/10 transition-all">
-                  <Settings :size="14" class="text-gray-400" />
-                </button>
-                <button @click="openDelete(row)" class="p-2.5 rounded-xl bg-rose-500/5 text-rose-500 hover:bg-rose-500 text-white transition-all">
-                  <Trash2 :size="14" />
-                </button>
-              </div>
+            <template #column-actions="{ row }">
+               <div class="flex items-center justify-center gap-1.5">
+                 <button @click="openInstallGuide(row)" class="p-2 rounded-lg bg-emerald-500/5 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all" title="Deploy Probe">
+                   <Monitor :size="12" />
+                 </button>
+                 <button @click="openDetail(row)" class="p-2 rounded-lg bg-primary-500/5 text-primary-600 hover:bg-primary-500 hover:text-white transition-all" title="Analytics">
+                   <Activity :size="12" />
+                 </button>
+                 <button @click="openEdit(row)" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/10 transition-all" title="Settings">
+                   <Settings :size="12" class="text-gray-400" />
+                 </button>
+                 <button @click="openDelete(row)" class="p-2 rounded-lg bg-rose-500/5 text-rose-500 hover:bg-rose-500 hover:text-white transition-all" title="Remove">
+                   <Trash2 :size="12" />
+                 </button>
+               </div>
             </template>
           </DataGrid>
         </div>
       </div>
 
-      <!-- Right Sidebar: Alerts & Feed -->
-      <div class="w-full xl:w-96 space-y-8">
+      <!-- Event Feed Section (Separate Row) -->
+      <div class="w-full">
         <div class="mipulse-card p-8 border-none bg-white hover:bg-white/95 dark:bg-gray-950 dark:hover:bg-gray-950 shadow-2xl transition-all duration-500 overflow-hidden">
           <div class="flex items-center justify-between mb-8">
             <div class="flex items-center gap-3">
@@ -598,21 +598,6 @@ const formatTime = (iso) => {
           <button v-if="alerts.length" @click="handleClearAlerts" class="w-full mt-6 py-4 bg-gray-50 dark:bg-white/5 dark:hover:bg-rose-500/10 hover:bg-rose-50 rounded-[1.5rem] border border-black/5 dark:border-white/5 text-[10px] font-black text-gray-400 hover:text-rose-500 transition-all uppercase tracking-[0.2em]">
             Clear Intelligence Feed
           </button>
-        </div>
-
-        <!-- Quick Integration Card -->
-        <div class="admin-stat-card bg-gradient-to-br from-primary-600 to-indigo-700 border-none group cursor-pointer" @click="openCreate">
-          <div class="relative z-10">
-            <h5 class="text-white text-lg font-black tracking-tight leading-none">Scale Network</h5>
-            <p class="text-white/60 text-xs mt-2 leading-relaxed">Add high-performance probes to your global cluster in seconds.</p>
-            <div class="mt-6 flex items-center gap-2 text-white text-[10px] font-black uppercase tracking-widest">
-              <span>Start Deployment</span>
-              <ChevronRight :size="14" class="group-hover:translate-x-1 transition-transform" />
-            </div>
-          </div>
-          <div class="absolute -right-4 -bottom-4 opacity-10 group-hover:scale-110 transition-transform duration-700">
-            <Globe :size="120" />
-          </div>
         </div>
       </div>
     </div>
