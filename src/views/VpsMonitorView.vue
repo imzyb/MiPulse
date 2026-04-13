@@ -8,13 +8,15 @@ import {
 } from '../lib/api.js';
 import { formatNetworkSpeed, formatUptime } from '../lib/utils.js';
 import {
-  RefreshCw, Settings, Trash2,
-  Activity, ShieldCheck,
-  Copy
+  Plus, RefreshCw, Settings, Trash2, Cpu, HardDrive, 
+  ChevronRight, Gauge, Activity, Radio, AlertTriangle,
+  Monitor, ShieldCheck, Globe, Copy
 } from 'lucide-vue-next';
 import DataGrid from '../components/shared/DataGrid.vue';
 import Modal from '../components/forms/Modal.vue';
+import VpsMetricChart from '../components/vps/VpsMetricChart.vue';
 import Switch from '../components/ui/Switch.vue';
+import ConfirmModal from '../components/ui/ConfirmModal.vue';
 
 const { showToast } = useToastStore();
 const config = ref({ vpsMonitor: {} });
@@ -23,6 +25,7 @@ const baseOrigin = window.location.origin;
 const isRefreshing = ref(false);
 const isLoading = ref(false);
 const nodes = ref([]);
+const alerts = ref([]);
 const lastRefreshError = ref(null);
 const selectedGroup = ref('全部');
 const isCompact = ref(localStorage.getItem('mipulse_vps_compact') === 'true');
@@ -57,6 +60,7 @@ const isDeletingNode = ref(false);
 const isDetailLoading = ref(false);
 const isResettingSecret = ref(false);
 const isResettingTraffic = ref(false);
+const showResetTrafficConfirm = ref(false);
 
 const selectedNode = ref(null);
 const detailPayload = ref(null);
@@ -94,7 +98,12 @@ const loadData = async ({ notify = false, silent = false } = {}) => {
   isRefreshing.value = true;
   
   try {
-    const [nodesRes, settingsRes] = await Promise.all([fetchVpsNodes(), fetchSettings()]);
+    const [nodesRes, settingsRes, alertsRes] = await Promise.all([
+      fetchVpsNodes(), 
+      fetchSettings(),
+      fetchVpsAlerts()
+    ]);
+    
     if (nodesRes && nodesRes.success) {
       nodes.value = nodesRes.nodes || [];
       lastRefreshError.value = null;
@@ -106,6 +115,10 @@ const loadData = async ({ notify = false, silent = false } = {}) => {
     
     if (settingsRes && settingsRes.success) {
       config.value = settingsRes.data || settingsRes.settings || { vpsMonitor: {} };
+    }
+
+    if (alertsRes && (alertsRes.success || alertsRes.alerts)) {
+      alerts.value = alertsRes.data || alertsRes.alerts || [];
     }
     
     if (notify) {
@@ -324,15 +337,33 @@ const handleResetConnection = async () => {
   }
 };
 
+const onlineCount = computed(() => nodes.value.filter(n => n.status === 'online').length);
+
+const totalTraffic = computed(() => {
+    const sum = nodes.value.reduce((acc, node) => acc + (node.totalRx || 0) + (node.totalTx || 0), 0);
+    const { formatBytes } = import.meta.glob('../lib/utils.js', { eager: true })['../lib/utils.js'];
+    return formatBytes ? formatBytes(sum) : sum;
+});
+
+const handleClearAlerts = async () => {
+  await clearVpsAlerts();
+  loadData({ silent: true });
+};
+
+const openResetTraffic = (node) => {
+  selectedNode.value = node;
+  showResetTrafficConfirm.value = true;
+};
+
 const handleResetTraffic = async () => {
     if (!selectedNode.value?.id || isResettingTraffic.value) return;
-    if (!confirm('确定要重置由于系统统计错误导致的累计流量数据吗？此操作将使该节点的统计归零并重新开始准确计费。')) return;
 
     isResettingTraffic.value = true;
     try {
         const result = await resetVpsTraffic(selectedNode.value.id);
         if (result.success) {
             showToast('流量统计已清零', 'success');
+            showResetTrafficConfirm.value = false;
             await loadData({ silent: true });
         } else {
             showToast(result?.error || '重置失败', 'error');
@@ -344,103 +375,247 @@ const handleResetTraffic = async () => {
     }
 };
 
-// Final load logic removed as it is now in onMounted
+const formatTime = (iso) => {
+  if (!iso) return '从未';
+  return new Date(iso).toLocaleString();
+};
 </script>
 
 <template>
   <div class="admin-page">
-    <section class="grid grid-cols-1 gap-6">
-      <div class="admin-section-header">
-        <div class="admin-title-wrap">
-          <div class="admin-title-icon">
-            <Activity :size="20" />
-          </div>
+    <!-- Premium Stat Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-10 overflow-hidden">
+      <div class="admin-stat-card group">
+        <div class="flex items-center justify-between gap-4">
           <div>
-            <h2 class="admin-title">Cluster Monitor</h2>
-            <p class="admin-subtitle">集群监测</p>
+            <p class="admin-stat-label">监测节点</p>
+            <p class="admin-stat-value">{{ nodes.length }}</p>
+            <p class="admin-stat-meta text-primary-500/80">Active Infrastructure</p>
+          </div>
+          <div class="w-16 h-16 rounded-3xl bg-primary-500/10 text-primary-600 flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500">
+            <Monitor :size="32" />
           </div>
         </div>
-        <div class="flex items-center gap-3 w-full xl:w-auto">
-          <button @click="toggleCompact" class="admin-secondary-btn px-4 py-4 flex items-center gap-2" :title="isCompact ? '切换到常规模式' : '切换到紧凑模式'">
-            <div class="flex flex-col gap-0.5 items-center justify-center w-5 h-5">
-                <div class="w-4 h-0.5 bg-gray-400 rounded-full" :class="{'w-2': isCompact}"></div>
-                <div class="w-4 h-0.5 bg-gray-400 rounded-full"></div>
-                <div class="w-4 h-0.5 bg-gray-400 rounded-full" :class="{'w-2': isCompact}"></div>
+        <div class="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary-500/20 to-transparent"></div>
+      </div>
+
+      <div class="admin-stat-card group">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="admin-stat-label">连接状态</p>
+            <p class="admin-stat-value">{{ onlineCount }}</p>
+            <p class="admin-stat-meta text-emerald-500/80">{{ nodes.length ? `${Math.round((onlineCount / nodes.length) * 100)}% 在线率` : 'Waiting for connection' }}</p>
+          </div>
+          <div class="w-16 h-16 rounded-3xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500">
+            <Radio :size="32" :class="{'animate-pulse': onlineCount > 0}" />
+          </div>
+        </div>
+        <div class="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent"></div>
+      </div>
+
+      <div class="admin-stat-card group">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="admin-stat-label">吞吐流量</p>
+            <p class="admin-stat-value">{{ totalTraffic }}</p>
+            <p class="admin-stat-meta text-indigo-500/80">Accumulated Bandwidth</p>
+          </div>
+          <div class="w-16 h-16 rounded-3xl bg-indigo-500/10 text-indigo-600 flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500">
+            <Activity :size="32" />
+          </div>
+        </div>
+        <div class="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-indigo-500/20 to-transparent"></div>
+      </div>
+
+      <div class="admin-stat-card group">
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <p class="admin-stat-label">活动告警</p>
+            <p class="admin-stat-value" :class="alerts.length ? 'text-rose-500' : ''">{{ alerts.length }}</p>
+            <p class="admin-stat-meta" :class="alerts.length ? 'text-rose-500/80' : 'text-gray-400'">{{ alerts.length ? '需要立即处理' : '系统运行平稳' }}</p>
+          </div>
+          <div class="w-16 h-16 rounded-3xl flex items-center justify-center shadow-inner shadow-white/50 dark:shadow-none group-hover:scale-110 transition-transform duration-500"
+               :class="alerts.length ? 'bg-rose-500/10 text-rose-600' : 'bg-gray-100/50 dark:bg-white/5 text-gray-400'">
+            <AlertTriangle :size="32" />
+          </div>
+        </div>
+        <div class="absolute bottom-0 left-0 w-full h-1" :class="alerts.length ? 'bg-gradient-to-r from-transparent via-rose-500/20 to-transparent' : ''"></div>
+      </div>
+    </div>
+
+    <!-- Cluster Monitor Grid & Sidebar -->
+    <div class="flex flex-col xl:flex-row gap-8">
+      <div class="flex-1 min-w-0">
+        <div class="admin-section-header mb-8">
+          <div class="admin-title-wrap">
+            <div class="admin-title-icon">
+              <Activity :size="20" />
             </div>
-            <span class="hidden sm:inline">{{ isCompact ? '常规' : '紧凑' }}</span>
-          </button>
-          <button @click="handleRefresh" class="admin-secondary-btn px-6 py-4 flex items-center gap-2 group relative overflow-hidden" :class="{'border-rose-500/20 text-rose-500': lastRefreshError}">
-            <div v-if="isRefreshing" class="absolute inset-0 bg-primary-500/5 animate-pulse"></div>
-            <RefreshCw :size="16" :class="{'animate-spin text-primary-500': isRefreshing, 'text-rose-500': lastRefreshError}" class="text-gray-500 transition-colors" />
-            <div class="flex flex-col items-start leading-none gap-1">
-                <span class="text-[9px] font-black uppercase tracking-widest" :class="lastRefreshError ? 'text-rose-500' : 'text-gray-400'">
-                    {{ lastRefreshError ? 'Sync Error' : (isRefreshing ? 'Syncing...' : `Next Sync: ${refreshCountdown}s`) }}
-                </span>
-                <span class="text-[10px] font-black">{{ lastRefreshError ? '重试中' : '刷新数据' }}</span>
+            <div>
+              <h2 class="admin-title">Cluster Monitor</h2>
+              <p class="admin-subtitle">实时掌握全球节点负载与存活状态</p>
             </div>
-          </button>
-          <button @click="openCreate" class="admin-primary-btn flex-1 xl:flex-none whitespace-nowrap">
-            部署新探针
-          </button>
+          </div>
+          <div class="flex items-center gap-3 w-full md:w-auto">
+            <button @click="toggleCompact" class="admin-secondary-btn flex-1 md:flex-initial px-4 flex items-center gap-2 group" :title="isCompact ? '切换到常规模式' : '切换到紧凑模式'">
+              <Monitor :size="14" class="text-gray-400 group-hover:text-primary-500 transition-colors" />
+              <span class="hidden sm:inline">{{ isCompact ? '常规' : '紧凑' }}</span>
+            </button>
+            <button @click="handleRefresh" class="admin-secondary-btn flex-1 md:flex-initial px-6 flex items-center gap-3 transition-all active:scale-95" :class="{'border-rose-500/20 text-rose-500': lastRefreshError}">
+              <RefreshCw :size="14" :class="{'animate-spin text-primary-500': isRefreshing}" class="text-gray-400" />
+              <div class="flex flex-col items-start leading-none gap-0.5">
+                  <span class="text-[8px] font-black uppercase tracking-widest text-gray-400">{{ isRefreshing ? 'Syncing' : refreshCountdown + 's' }}</span>
+                  <span class="text-[10px] font-black">刷新</span>
+              </div>
+            </button>
+            <button @click="openCreate" class="admin-primary-btn px-8">
+              <Plus :size="16" />
+              部署探针
+            </button>
+          </div>
+        </div>
+
+        <div class="admin-panel border-none bg-transparent shadow-none overflow-visible">
+          <div class="p-1 mb-6 flex flex-wrap items-center justify-start gap-2">
+            <button v-for="g in groups" :key="g" @click="selectedGroup = g"
+              :class="selectedGroup === g ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/30 font-black scale-105' : 'bg-white/50 dark:bg-white/5 text-gray-500 hover:bg-white dark:hover:bg-white/10 border border-black/5 dark:border-white/5'"
+              class="px-5 py-2 rounded-xl text-[10px] uppercase tracking-[0.15em] transition-all hover:-translate-y-0.5 whitespace-nowrap">
+              {{ g === '全部' ? '✨ All Nodes' : g }}
+            </button>
+          </div>
+
+          <DataGrid :data="filteredNodes" :columns="columns" :loading="isLoading" :compact="isCompact" class="bg-white/40 dark:bg-gray-950/40 backdrop-blur-xl border border-black/5 dark:border-white/5 rounded-[2rem] overflow-hidden">
+            <template #column-name="{ row }">
+              <div class="flex items-center gap-3 pl-4">
+                <div class="w-2 h-2 rounded-full" :class="row.status === 'online' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-gray-400 shadow-none'"></div>
+                <div class="flex flex-col">
+                  <span class="text-sm font-black text-gray-900 dark:text-white">{{ row.name }}</span>
+                  <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{{ row.region || 'Global' }}</span>
+                </div>
+              </div>
+            </template>
+
+            <template #column-bandwidth="{ row }">
+              <div class="flex flex-col lg:flex-row items-center gap-2 lg:gap-4 px-2">
+                <div class="flex flex-col items-center lg:items-end">
+                  <span class="text-[9px] font-black uppercase tracking-tighter text-gray-400">Upload</span>
+                  <span class="text-[11px] font-mono font-black text-emerald-500 leading-none">↑ {{ formatNetworkSpeed(row.latest?.traffic?.txSpeed || 0) }}</span>
+                </div>
+                <div class="w-px h-6 bg-gray-100 dark:bg-white/5 hidden lg:block"></div>
+                <div class="flex flex-col items-center lg:items-start">
+                  <span class="text-[9px] font-black uppercase tracking-tighter text-gray-400">Download</span>
+                  <span class="text-[11px] font-mono font-black text-indigo-500 leading-none">↓ {{ formatNetworkSpeed(row.latest?.traffic?.rxSpeed || 0) }}</span>
+                </div>
+              </div>
+            </template>
+
+            <template #column-status="{ row }">
+               <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all"
+                 :class="row.status === 'online' ? 'status-glow-online bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'">
+                 {{ row.status === 'online' ? 'Online' : 'Offline' }}
+               </div>
+             </template>
+
+            <template #column-networkMonitor="{ row }">
+               <div class="flex items-center gap-1.5">
+                 <div v-if="row.networkMonitorEnabled !== false" class="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-500/5 text-sky-500 text-[9px] font-black uppercase tracking-widest border border-sky-500/10 rounded-lg">
+                   <Radio :size="10" class="animate-pulse" />
+                   Active
+                 </div>
+                 <div v-else class="text-[9px] font-bold text-gray-400/50 tracking-widest uppercase">Inactive</div>
+               </div>
+             </template>
+
+            <template #column-ipAddress="{ row }">
+              <div class="px-2 py-1 rounded-lg bg-gray-50 dark:bg-white/5 border border-black/5 dark:border-white/5 font-mono text-[10px] text-gray-500 dark:text-gray-400 group-hover:text-primary-500 transition-colors">
+                {{ row.latest?.publicIp || row.latest?.ip || row.latest?.meta?.publicIp || '0.0.0.0' }}
+              </div>
+            </template>
+
+           <template #column-actions="{ row }">
+              <div class="flex items-center justify-end gap-2 pr-4">
+                <button @click="openInstallGuide(row)" class="p-2.5 rounded-xl bg-emerald-500/5 text-emerald-500 hover:bg-emerald-500 text-white transition-all" title="Deploy Probe">
+                  <Monitor :size="14" />
+                </button>
+                <button @click="openDetail(row)" class="p-2.5 rounded-xl bg-primary-500/5 text-primary-600 hover:bg-primary-500 text-white transition-all">
+                  <Activity :size="14" />
+                </button>
+                <button @click="openEdit(row)" class="p-2.5 rounded-xl hover:bg-gray-100 dark:hover:bg-white/10 transition-all">
+                  <Settings :size="14" class="text-gray-400" />
+                </button>
+                <button @click="openDelete(row)" class="p-2.5 rounded-xl bg-rose-500/5 text-rose-500 hover:bg-rose-500 text-white transition-all">
+                  <Trash2 :size="14" />
+                </button>
+              </div>
+            </template>
+          </DataGrid>
         </div>
       </div>
 
-      <div class="admin-panel p-5 lg:p-6 space-y-4">
-        <div class="flex flex-wrap items-center justify-start gap-2 overflow-x-auto no-scrollbar">
-          <button v-for="g in groups" :key="g" @click="selectedGroup = g"
-            :class="selectedGroup === g ? 'bg-primary-600 text-white shadow-xl font-black' : 'text-gray-500 hover:bg-black/5 dark:hover:bg-white/5'"
-            class="px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-widest transition-all whitespace-nowrap">
-            {{ g }}
+      <!-- Right Sidebar: Alerts & Feed -->
+      <div class="w-full xl:w-96 space-y-8">
+        <div class="mipulse-card p-8 border-none bg-white hover:bg-white/95 dark:bg-gray-950 dark:hover:bg-gray-950 shadow-2xl transition-all duration-500 overflow-hidden">
+          <div class="flex items-center justify-between mb-8">
+            <div class="flex items-center gap-3">
+              <div class="w-1.5 h-6 bg-primary-500 rounded-full"></div>
+              <h4 class="text-lg font-black text-gray-900 dark:text-white uppercase tracking-tighter">Event Feed</h4>
+            </div>
+            <div class="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 rounded-full">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span class="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Live</span>
+            </div>
+          </div>
+
+          <div class="space-y-6 relative">
+            <!-- Timeline vertical line -->
+            <div class="absolute left-1.5 top-0 bottom-0 w-px bg-gray-100 dark:bg-white/5"></div>
+
+            <div v-for="alert in alerts.slice(0, 6)" :key="alert.id" class="flex gap-6 relative group">
+              <div class="shrink-0 flex flex-col items-center mt-1.5">
+                <div class="w-3 h-3 rounded-full ring-4 ring-rose-500/10 bg-rose-500 z-10 group-hover:scale-125 transition-transform"></div>
+              </div>
+              <div class="pb-6 w-full">
+                <div class="flex items-start justify-between gap-4">
+                  <p class="text-[13px] font-bold text-gray-900 dark:text-white leading-tight group-hover:text-primary-500 transition-colors">{{ alert.message }}</p>
+                </div>
+                <div class="flex items-center gap-2 mt-2">
+                  <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">{{ formatTime(alert.createdAt) }}</span>
+                  <div class="w-1 h-1 rounded-full bg-gray-200 dark:bg-gray-800"></div>
+                  <span class="text-[9px] font-bold text-rose-500/80 uppercase">Warning</span>
+                </div>
+              </div>
+            </div>
+            
+            <div v-if="!alerts.length" class="admin-empty-state border-none bg-transparent py-16">
+              <div class="w-20 h-20 rounded-[2rem] bg-emerald-500/5 text-emerald-500 flex items-center justify-center mx-auto mb-6 shadow-inner">
+                 <ShieldCheck :size="40" />
+              </div>
+              <p class="admin-empty-title">All Systems Operational</p>
+              <p class="admin-empty-subtitle mt-2">No active alerts at this time.</p>
+            </div>
+          </div>
+
+          <button v-if="alerts.length" @click="handleClearAlerts" class="w-full mt-6 py-4 bg-gray-50 dark:bg-white/5 dark:hover:bg-rose-500/10 hover:bg-rose-50 rounded-[1.5rem] border border-black/5 dark:border-white/5 text-[10px] font-black text-gray-400 hover:text-rose-500 transition-all uppercase tracking-[0.2em]">
+            Clear Intelligence Feed
           </button>
         </div>
 
-        <DataGrid :data="filteredNodes" :columns="columns" :loading="isLoading" :compact="isCompact">
-          <template #column-name="{ row }">
-            <div class="text-sm font-black text-gray-900 dark:text-white text-center">
-              {{ row.name }}
+        <!-- Quick Integration Card -->
+        <div class="admin-stat-card bg-gradient-to-br from-primary-600 to-indigo-700 border-none group cursor-pointer" @click="openCreate">
+          <div class="relative z-10">
+            <h5 class="text-white text-lg font-black tracking-tight leading-none">Scale Network</h5>
+            <p class="text-white/60 text-xs mt-2 leading-relaxed">Add high-performance probes to your global cluster in seconds.</p>
+            <div class="mt-6 flex items-center gap-2 text-white text-[10px] font-black uppercase tracking-widest">
+              <span>Start Deployment</span>
+              <ChevronRight :size="14" class="group-hover:translate-x-1 transition-transform" />
             </div>
-          </template>
-
-          <template #column-bandwidth="{ row }">
-            <div class="flex flex-col items-center">
-              <span class="text-[10px] font-bold text-emerald-500">↑ {{ formatNetworkSpeed(row.latest?.traffic?.txSpeed || 0) }}</span>
-              <span class="text-[10px] font-bold text-indigo-500">↓ {{ formatNetworkSpeed(row.latest?.traffic?.rxSpeed || 0) }}</span>
-            </div>
-          </template>
-
-          <template #column-status="{ row }">
-             <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase"
-               :class="row.status === 'online' ? 'bg-emerald-500/10 text-emerald-500 ring-1 ring-emerald-500/30' : 'bg-rose-500/10 text-rose-500 ring-1 ring-rose-500/30'">
-               <span class="h-1.5 w-1.5 rounded-full" :class="row.status === 'online' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'"></span>
-               {{ row.status === 'online' ? '在线' : '离线' }}
-             </div>
-           </template>
-
-          <template #column-networkMonitor="{ row }">
-             <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase"
-               :class="row.networkMonitorEnabled !== false ? 'bg-sky-500/10 text-sky-500 ring-1 ring-sky-500/30' : 'bg-gray-500/10 text-gray-500 ring-1 ring-gray-500/30'">
-               <span class="h-1.5 w-1.5 rounded-full" :class="row.networkMonitorEnabled !== false ? 'bg-sky-500' : 'bg-gray-400'"></span>
-               {{ row.networkMonitorEnabled !== false ? '已开启' : '已关闭' }}
-             </div>
-           </template>
-
-          <template #column-ipAddress="{ row }">
-            <span class="text-xs font-mono text-gray-700 dark:text-gray-300">
-              {{ row.latest?.publicIp || row.latest?.ip || row.latest?.meta?.publicIp || '--' }}
-            </span>
-          </template>
-
-         <template #column-actions="{ row }">
-            <div class="flex items-center justify-center gap-2">
-              <button @click="openInstallGuide(row)" class="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 px-3 text-[11px] font-bold transition-all">安装</button>
-              <button @click="openDetail(row)" class="p-2 rounded-lg bg-primary-500/10 text-primary-600 hover:bg-primary-500/20 px-3 text-[11px] font-bold transition-all">指标详情</button>
-              <button @click="openEdit(row)" class="p-2 rounded-lg bg-gray-500/10 text-gray-500 hover:bg-gray-500/20 transition-all"><Settings :size="16" /></button>
-              <button @click="openDelete(row)" class="p-2 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-all"><Trash2 :size="16" /></button>
-            </div>
-          </template>
-        </DataGrid>
+          </div>
+          <div class="absolute -right-4 -bottom-4 opacity-10 group-hover:scale-110 transition-transform duration-700">
+            <Globe :size="120" />
+          </div>
+        </div>
       </div>
-    </section>
+    </div>
 
     <!-- Modals -->
     
@@ -496,8 +671,8 @@ const handleResetTraffic = async () => {
       </template>
       <template #footer>
         <div class="flex items-center justify-between w-full">
-          <button @click="handleResetTraffic" :disabled="isResettingTraffic" class="text-[10px] font-black uppercase tracking-widest text-rose-500 bg-rose-500/5 hover:bg-rose-500/10 px-4 py-2 rounded-lg border border-rose-500/20 transition-all disabled:opacity-50">
-            {{ isResettingTraffic ? '正在重置...' : '重置流量统计' }}
+          <button @click="openResetTraffic(selectedNode)" :disabled="isResettingTraffic" class="text-[10px] font-black uppercase tracking-widest text-rose-500 bg-rose-500/5 hover:bg-rose-500/10 px-4 py-2 rounded-lg border border-rose-500/20 transition-all disabled:opacity-50">
+            重置流量统计
           </button>
           <button @click="handleUpdate" :disabled="isUpdatingNode" class="px-8 py-4 rounded-xl bg-primary-600 text-white font-black uppercase tracking-widest transition-all">
             {{ isUpdatingNode ? '保存中...' : '提交更改' }}
@@ -630,6 +805,27 @@ const handleResetTraffic = async () => {
         </button>
       </template>
     </Modal>
+
+    <!-- Detailed Logic Confirmations -->
+    <ConfirmModal
+      v-model:show="showDeleteConfirm"
+      title="安全降级警告"
+      :message="`您确定要永久移除节点「${selectedNode?.name}」吗？所有关联的监控历史报表都将被物理清除。`"
+      confirm-text="确认销毁"
+      type="danger"
+      :loading="isDeletingNode"
+      @confirm="handleDelete"
+    />
+
+    <ConfirmModal
+      v-model:show="showResetTrafficConfirm"
+      title="流量统计重置"
+      message="确定要重置由于系统统计错误导致的累计流量数据吗？此操作将使该节点的统计归零并重新开始准确计费。"
+      confirm-text="开始重置"
+      type="warning"
+      :loading="isResettingTraffic"
+      @confirm="handleResetTraffic"
+    />
   </div>
 </template>
 

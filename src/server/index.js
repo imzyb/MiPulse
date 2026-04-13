@@ -128,7 +128,7 @@ async function handleScheduled(event, env, ctx) {
         // Find nodes that are 'online' but haven't reported within threshold
         const { results: deadNodes } = await db.prepare(`
             SELECT id, name FROM vps_nodes 
-            WHERE status = 'online' 
+            WHERE status != 'offline' 
             AND last_seen_at < datetime('now', ?)
         `).bind(`-${settings.offlineThresholdMinutes} minutes`).all();
 

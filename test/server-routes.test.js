@@ -90,6 +90,29 @@ function createDb() {
       const node = state.nodes.find((item) => item.id.toLowerCase() === String(args[0]).toLowerCase());
       return node ? { id: node.id, secret: node.secret, lastSeenAt: node.last_seen_at, lastReport: node.last_report_json } : null;
     }
+    if (sql.includes('SELECT id, name, region, status FROM vps_nodes WHERE id = ? AND enabled = 1') && method === 'first') {
+      const node = state.nodes.find((item) => item.id === args[0] && item.enabled === 1);
+      return node ? { id: node.id, name: node.name, region: node.region, status: node.status } : null;
+    }
+    if (sql.includes('SELECT id, name, region, country_code AS countryCode, status, last_seen_at AS lastSeenAt, tag, group_tag AS groupTag, last_report_json AS lastReport, total_rx AS totalRx, total_tx AS totalTx FROM vps_nodes WHERE enabled = 1 ORDER BY name ASC') && method === 'all') {
+      return {
+        results: state.nodes
+          .filter((node) => node.enabled === 1)
+          .map((node) => ({
+            id: node.id,
+            name: node.name,
+            region: node.region,
+            countryCode: node.country_code,
+            status: node.status,
+            lastSeenAt: node.last_seen_at,
+            tag: node.tag,
+            groupTag: node.group_tag,
+            lastReport: node.last_report_json,
+            totalRx: node.total_rx,
+            totalTx: node.total_tx
+          }))
+      };
+    }
     if (sql.includes('SELECT id, name, tag, group_tag AS groupTag, region, country_code AS countryCode, secret, status, enabled, network_monitor_enabled AS networkMonitorEnabled, last_report_json AS lastReport, total_rx AS totalRx, total_tx AS totalTx FROM vps_nodes') && method === 'all') {
       return {
         results: state.nodes.map((node) => ({
@@ -228,6 +251,40 @@ function createDb() {
         results: state.networkSamples
           .filter((item) => item.node_id === args[0])
           .map((item) => ({ data: item.data }))
+      };
+    }
+    if (sql.includes('SELECT id, target, name, type FROM vps_network_targets WHERE node_id = ? OR node_id = "global"') && method === 'all') {
+      return {
+        results: state.networkTargets
+          .filter((item) => item.node_id === args[0] || item.node_id === 'global')
+          .map((item) => ({ id: item.id, target: item.target, name: item.name, type: item.type }))
+      };
+    }
+    if (sql.includes('SELECT data, reported_at as timestamp FROM vps_reports') && method === 'all') {
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      return {
+        results: state.reports
+          .filter((item) => item.node_id === args[0] && new Date(item.reported_at).getTime() > cutoff)
+          .sort((a, b) => new Date(a.reported_at).getTime() - new Date(b.reported_at).getTime())
+          .map((item) => ({ data: item.data, timestamp: item.reported_at }))
+      };
+    }
+    if (sql.includes('SELECT node_id, CAST(json_extract(data,') && method === 'all') {
+      return {
+        results: state.reports
+          .map((item) => {
+            let parsed = {};
+            try {
+              parsed = JSON.parse(item.data || '{}');
+            } catch {
+              parsed = {};
+            }
+            return {
+              node_id: item.node_id,
+              latencyMs: parsed.latencyMs ?? 0,
+              reportedAt: item.reported_at
+            };
+          })
       };
     }
     if (sql.includes('SELECT * FROM vps_network_targets WHERE node_id = ? ORDER BY created_at DESC') && method === 'all') {
@@ -646,4 +703,114 @@ test('probe checks text endpoint exposes typed check rows', async () => {
   assert.equal(response.status, 200);
   assert.match(text, /icmp-1\|icmp\|1\.1\.1\.1\|\|\|/);
   assert.match(text, /tcp-1\|tcp\|example\.com\|\|443\|/);
+});
+
+test('public node detail exposes target mapping for both target and display name keys', async () => {
+  const db = createDb();
+  db.state.networkTargets.push({ id: 'target-2', node_id: 'node-1', type: 'http', target: 'status.example.com', name: 'Tokyo API', scheme: 'https', port: null, path: '/', enabled: 1, force_check_at: null });
+  db.state.reports.push({
+    id: 'report-1',
+    node_id: 'node-1',
+    reported_at: new Date().toISOString(),
+    data: JSON.stringify({
+      latencyMs: 18,
+      lossPercent: 0,
+      checks: [{ name: 'Tokyo API', type: 'HTTP', latencyMs: 18, lossPercent: 0 }]
+    })
+  });
+  const env = { JWT_SECRET: 'jwt-secret', MIPULSE_DB: db };
+  const app = createApp(env);
+
+  const response = await app.request('http://localhost/api/vps/public/nodes/node-1', {}, env);
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.success, true);
+  assert.equal(payload.targetNames['status.example.com'], 'Tokyo API');
+  assert.equal(payload.targetNames['Tokyo API'], 'Tokyo API');
+  assert.equal(payload.networkSamples[0].checks[0].name, 'Tokyo API');
+});
+
+test('report endpoint enriches legacy checks with target metadata for stable chart grouping', async () => {
+  const db = createDb();
+  db.state.networkTargets.push({ id: 'target-2', node_id: 'node-1', type: 'http', target: 'status.example.com', name: 'Tokyo API', scheme: 'https', port: null, path: '/', enabled: 1, force_check_at: null });
+  const env = { JWT_SECRET: 'jwt-secret', MIPULSE_DB: db };
+  const app = createApp(env);
+
+  const response = await app.request('http://localhost/api/vps/report', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-node-id': 'node-1',
+      'x-node-secret': 'node-secret'
+    },
+    body: JSON.stringify({
+      timestamp: '2026-01-01T00:00:00.000Z',
+      latencyMs: 18,
+      lossPercent: 0,
+      traffic: { rx: 0, tx: 0 },
+      checks: [{ name: 'Tokyo API', latencyMs: 18, loss: 0 }]
+    })
+  }, env);
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.success, true);
+  const storedReport = JSON.parse(db.state.nodes[0].last_report_json);
+  assert.equal(storedReport.checks[0].targetId, 'target-2');
+  assert.equal(storedReport.checks[0].target, 'status.example.com');
+  assert.equal(storedReport.checks[0].name, 'Tokyo API');
+  assert.equal(storedReport.checks[0].type, 'http');
+});
+
+test('public install script stores target metadata for periodic report payloads', async () => {
+  const db = createDb();
+  const env = { JWT_SECRET: 'jwt-secret', MIPULSE_DB: db };
+  const app = createApp(env);
+
+  const response = await app.request('http://localhost/api/vps/install?nodeId=node-1&secret=node-secret', {}, env);
+  const script = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(script, /targets\.tsv/);
+  assert.match(script, /targetId\\":\\"\$target_id/);
+  assert.match(script, /target\\":\\"\$target_host/);
+  assert.match(script, /name\\":\\"\$\{target_name:-\$target_host\}/);
+  assert.match(script, /type\\":\\"\$\{target_type:-ICMP\}/);
+});
+
+test('public node detail keeps a renamed target on one series when targetId is present', async () => {
+  const db = createDb();
+  db.state.networkTargets.push({ id: 'target-2', node_id: 'node-1', type: 'http', target: 'status.example.com', name: 'Tokyo API v2', scheme: 'https', port: null, path: '/', enabled: 1, force_check_at: null });
+  db.state.reports.push({
+    id: 'report-1',
+    node_id: 'node-1',
+    reported_at: new Date(Date.now() - 60_000).toISOString(),
+    data: JSON.stringify({
+      latencyMs: 18,
+      lossPercent: 0,
+      checks: [{ targetId: 'target-2', target: 'status.example.com', name: 'Tokyo API', type: 'HTTP', latencyMs: 18, lossPercent: 0 }]
+    })
+  });
+  db.state.reports.push({
+    id: 'report-2',
+    node_id: 'node-1',
+    reported_at: new Date().toISOString(),
+    data: JSON.stringify({
+      latencyMs: 20,
+      lossPercent: 0,
+      checks: [{ targetId: 'target-2', target: 'status.example.com', name: 'Tokyo API v2', type: 'HTTP', latencyMs: 20, lossPercent: 0 }]
+    })
+  });
+  const env = { JWT_SECRET: 'jwt-secret', MIPULSE_DB: db };
+  const app = createApp(env);
+
+  const response = await app.request('http://localhost/api/vps/public/nodes/node-1', {}, env);
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.success, true);
+  assert.equal(payload.targetsById['target-2'].name, 'Tokyo API v2');
+  assert.equal(payload.networkSamples[0].checks[0].targetId, 'target-2');
+  assert.equal(payload.networkSamples[1].checks[0].targetId, 'target-2');
 });

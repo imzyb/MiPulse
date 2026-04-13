@@ -376,6 +376,26 @@ function normalizeTargetListItem(target, latestSampleMap) {
     };
 }
 
+async function enrichReportChecks(db, nodeId, checks) {
+    if (!Array.isArray(checks) || checks.length === 0) return [];
+    const { results } = await db.prepare('SELECT id, target, name, type FROM vps_network_targets WHERE node_id = ? OR node_id = "global"').bind(nodeId).all();
+    const targets = results || [];
+    return checks.map((check) => {
+        if (!check || typeof check !== 'object') return check;
+        if (check.targetId) return check;
+        const lookup = String(check.target || check.name || '').trim().toLowerCase();
+        const matched = targets.find((target) => String(target.target || '').trim().toLowerCase() === lookup || String(target.name || '').trim().toLowerCase() === lookup);
+        if (!matched) return check;
+        return {
+            ...check,
+            targetId: matched.id,
+            target: check.target || matched.target,
+            name: check.name || matched.name || matched.target,
+            type: check.type || matched.type
+        };
+    });
+}
+
 // --- Routes ---
 
 vps.get('/public', async (c) => {
@@ -433,7 +453,9 @@ vps.post('/report', async (c) => {
     if (!node) return c.json({ error: 'Node not found' }, 404);
     if (node.secret && !secret) return c.json({ error: 'Missing secret' }, 401);
     if (node.secret !== secret) return c.json({ error: 'Invalid secret' }, 401);
+    report.checks = await enrichReportChecks(db, node.id, report.checks);
     const reportedAt = normalizeReportTimestamp(report.ts || report.timestamp, nowIso());
+    report.timestamp = reportedAt;
     const lastRep = safeJsonParse(node.lastReport, {});
     const hasPreviousReport = !!node.lastSeenAt && !!node.lastReport;
     const rxDelta = computeTrafficDelta(report.traffic?.rx, lastRep.traffic?.rx, hasPreviousReport);
@@ -807,7 +829,16 @@ vps.get('/probe/targets', async (c) => {
     if (!node) return c.json({ error: 'Invalid credentials' }, 401);
     try {
         const results = await getProbeTargets(db, node);
-        return c.json({ success: true, targets: results.map(r => r.target) });
+        return c.json({
+            success: true,
+            targets: results.map((r) => r.target),
+            data: results.map((r) => ({
+                id: r.id,
+                target: r.target,
+                name: r.name || r.target,
+                type: (r.type || 'icmp').toUpperCase()
+            }))
+        });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
@@ -889,9 +920,23 @@ vps.get('/public/nodes/:id', async (c) => {
         const node = await db.prepare('SELECT id, name, region, status FROM vps_nodes WHERE id = ? AND enabled = 1').bind(id).first();
         if (!node) return c.json({ error: 'Not found or disabled' }, 404);
 
-        const { results: targetRows } = await db.prepare('SELECT target, name FROM vps_network_targets WHERE node_id = ? OR node_id = "global"').bind(id).all();
+        const { results: targetRows } = await db.prepare('SELECT id, target, name, type FROM vps_network_targets WHERE node_id = ? OR node_id = "global"').bind(id).all();
         const targetNames = {};
-        targetRows.forEach(row => { if (row.name) targetNames[row.target] = row.name; });
+        const targetsById = {};
+        targetRows.forEach((row) => {
+            const displayName = row.name || row.target;
+            if (!displayName) return;
+            if (row.id) {
+                targetsById[row.id] = {
+                    id: row.id,
+                    name: displayName,
+                    target: row.target,
+                    type: (row.type || 'ICMP').toUpperCase()
+                };
+            }
+            if (row.target) targetNames[row.target] = displayName;
+            if (row.name) targetNames[row.name] = displayName;
+        });
 
         const { results: reports } = await db.prepare(`
             SELECT data, reported_at as timestamp FROM vps_reports 
@@ -921,7 +966,7 @@ vps.get('/public/nodes/:id', async (c) => {
             samples.push(...downsampled);
         }
 
-        return c.json({ success: true, node, networkSamples: samples, targetNames });
+        return c.json({ success: true, node, networkSamples: samples, targetNames, targetsById });
     } catch (err) { return c.json({ success: false, error: err.message }, 500); }
 });
 
@@ -1064,7 +1109,7 @@ vps.get('/install', async (c) => {
         '    fi',
         '    ended=$(date +%s)',
         '    if [[ "$latency" -eq 0 ]]; then latency=$(( (ended-started) * 1000 )); fi',
-        '    payload="{\"checks\":[{\"targetId\":\"$target_id\",\"nodeId\":\"$MIPULSE_ID\",\"status\":\"$status\",\"statusCode\":${code:-0},\"latencyMs\":${latency:-0},\"checkedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"mode\":\"$mode\",\"url\":\"$check_url\"}]}"',
+        '    payload="{\\\"checks\\\":[{\\\"targetId\\\":\\\"$target_id\\\",\\\"nodeId\\\":\\\"$MIPULSE_ID\\\",\\\"status\\\":\\\"$status\\\",\\\"statusCode\\\":${code:-0},\\\"latencyMs\\\":${latency:-0},\\\"checkedAt\\\":\\\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\\\",\\\"mode\\\":\\\"$mode\\\",\\\"url\\\":\\\"$check_url\\\"}]}"',
         '    curl -sS --connect-timeout 10 -m 30 -X POST "$MIPULSE_URL/api/vps/probe/check-results" -H "Content-Type: application/json" -H "x-node-id: $MIPULSE_ID" -H "x-node-secret: $MIPULSE_SECRET" -d "$payload" >/dev/null 2>&1 || true',
         '    echo "[$(date)] Forced check $target_id => $status ($latency ms)" >> "$LOG"',
         '  done <<< "$check_lines"',

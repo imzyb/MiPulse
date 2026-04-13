@@ -67,20 +67,20 @@ const adminNavItems = [
   <div class="min-h-screen bg-white dark:bg-gray-950 transition-colors">
     <ToastStack />
     <!-- Top Navigation Header -->
-    <header v-if="showSidebar" class="sticky top-0 z-[60] bg-white/80 dark:bg-gray-950/80 backdrop-blur-3xl border-b border-black/5 dark:border-white/5 transition-all">
+    <header v-if="showSidebar" class="sticky top-0 z-[60] bg-white/40 dark:bg-gray-950/40 backdrop-blur-3xl border-b border-black/5 dark:border-white/5 transition-all">
       <div ref="mobileMenuRef" class="max-w-[1440px] mx-auto px-6 lg:px-12 h-20 flex items-center justify-between">
         <div class="flex items-center gap-12">
           <div @click="router.push('/admin')" class="flex items-center gap-3 cursor-pointer group">
-            <div class="w-10 h-10 rounded-xl bg-primary-600 text-white flex items-center justify-center shadow-lg shadow-primary-500/30 group-hover:scale-110 transition-transform">
-              <Activity :size="24" />
+            <div class="w-11 h-11 rounded-[14px] bg-gradient-to-br from-primary-500 to-indigo-600 text-white flex items-center justify-center shadow-xl shadow-primary-500/20 group-hover:scale-105 transition-all duration-500 relative overflow-hidden">
+              <Activity :size="24" class="relative z-10" />
+              <div class="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
             </div>
-            <span class="text-2xl font-black text-gray-900 dark:text-white tracking-widest leading-none">MiPulse</span>
+            <span class="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-gray-900 via-gray-700 to-gray-900 dark:from-white dark:via-gray-300 dark:to-white tracking-tighter leading-none">MiPulse</span>
           </div>
 
-          <!-- Mobile Toggle (Wait, let's put it on the right? No, standard is left or next to logo) -->
-          <button @click="toggleMobileMenu" class="md:hidden p-2 rounded-xl text-gray-400 hover:text-gray-900 dark:hover:text-white transition-all ml-[-8px]">
-             <Menu v-if="!isMobileMenuOpen" :size="24" />
-             <X v-else :size="24" />
+          <button @click="toggleMobileMenu" class="md:hidden p-3 rounded-2xl bg-black/5 dark:bg-white/5 text-gray-500 hover:text-gray-900 dark:hover:text-white transition-all">
+             <Menu v-if="!isMobileMenuOpen" :size="22" />
+             <X v-else :size="22" />
           </button>
 
             <nav class="hidden md:flex items-center gap-6">
@@ -98,21 +98,21 @@ const adminNavItems = [
         </div>
 
         <div class="flex items-center gap-4">
-          <div class="hidden lg:flex flex-col items-end">
-            <span class="text-[10px] font-black uppercase tracking-[0.25em] text-gray-400">当前页面</span>
-            <span class="text-sm font-bold text-gray-900 dark:text-white">{{ currentPageTitle }}</span>
+          <div class="hidden xl:flex flex-col items-end mr-4">
+            <span class="text-[9px] font-black uppercase tracking-[0.3em] text-gray-400 opacity-70">Infrastructure Control</span>
+            <span class="text-xs font-black text-gray-900 dark:text-white bg-black/5 dark:bg-white/5 px-3 py-1 rounded-lg mt-1 border border-black/5 dark:border-white/5">{{ currentPageTitle }}</span>
           </div>
 
-          <router-link to="/" class="p-3 rounded-2xl text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 transition-all" title="查看公开页">
-            <Globe :size="20" />
+          <router-link to="/" class="p-3.5 rounded-2xl text-gray-400 hover:text-primary-500 hover:bg-primary-500/10 transition-all group" title="View Public Status">
+            <Globe :size="22" class="group-hover:rotate-12 transition-transform" />
           </router-link>
 
-          <div class="w-px h-6 bg-gray-200 dark:bg-white/10 mx-2"></div>
+          <div class="w-px h-8 bg-gray-200 dark:bg-white/10 mx-2"></div>
 
           <!-- Logout -->
-          <button @click="handleLogout" class="flex items-center gap-2 pl-4 pr-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-500/10 transition-all">
+          <button @click="handleLogout" class="flex items-center gap-3 pl-5 pr-3 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.15em] text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all">
             <LogOut :size="18" />
-            <span class="hidden sm:inline">退出登录</span>
+            <span class="hidden sm:inline">Terminate</span>
           </button>
         </div>
       </div>

@@ -1,0 +1,1 @@
+{"success":true,"nodes":[{"id":"test-node","name":"Test Node","region":"Global","countryCode":null,"status":"online","lastSeenAt":null,"tag":"TEST","groupTag":"Default","lastReport":null,"totalRx":0,"totalTx":0,"latency":[],"latest":null}]}

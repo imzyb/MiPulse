@@ -12,7 +12,7 @@ body {
 }
 
 .mipulse-card {
-  @apply rounded-3xl border border-black/5 bg-white/90 shadow-xl shadow-slate-200/40 backdrop-blur-xl dark:border-white/5 dark:bg-gray-900/85 dark:shadow-black/10;
+  @apply rounded-3xl border border-black/5 bg-white/70 shadow-2xl shadow-slate-200/40 backdrop-blur-3xl dark:border-white/5 dark:bg-gray-950/70 dark:shadow-black/20 transition-all duration-300;
 }
 
 .admin-page {
@@ -135,19 +135,19 @@ body {
 }
 
 .admin-stat-card {
-  @apply relative overflow-hidden rounded-[1.5rem] border border-black/5 bg-white/90 p-6 shadow-2xl shadow-slate-200/30 backdrop-blur-xl dark:border-white/5 dark:bg-gray-900/85 dark:shadow-black/10;
+  @apply relative overflow-hidden rounded-[2rem] border border-black/5 bg-white/60 p-8 shadow-2xl shadow-slate-200/30 backdrop-blur-3xl dark:border-white/5 dark:bg-gray-950/60 dark:shadow-black/20 hover:scale-[1.02] hover:shadow-primary-500/10 transition-all duration-500;
 }
 
 .admin-stat-label {
-  @apply text-[11px] font-black uppercase tracking-[0.22em] text-gray-400;
+  @apply text-[10px] font-black uppercase tracking-[0.25em] text-gray-400 group-hover:text-primary-500 transition-colors;
 }
 
 .admin-stat-value {
-  @apply mt-2 text-3xl font-black tracking-tight text-gray-900 dark:text-white;
+  @apply mt-3 text-4xl font-black tracking-tight text-gray-900 dark:text-white;
 }
 
 .admin-stat-meta {
-  @apply mt-2 text-xs font-medium text-gray-500 dark:text-gray-400;
+  @apply mt-3 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider;
 }
 
 .admin-select option {
@@ -161,5 +161,42 @@ body {
 }
 
 .admin-divider {
-  @apply h-px bg-gradient-to-r from-transparent via-black/10 dark:via-white/10 to-transparent;
+  @apply h-px bg-gradient-to-r from-transparent via-black/10 dark:via-white/10 to-transparent my-8;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-200 dark:bg-gray-800 rounded-full hover:bg-primary-500/50 transition-colors;
+}
+
+/* Animations */
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.status-glow-online {
+  @apply relative;
+}
+
+.status-glow-online::after {
+  content: '';
+  @apply absolute -inset-1 bg-emerald-500/30 rounded-full blur-md opacity-0 transition-opacity duration-500;
+}
+
+.status-glow-online:hover::after {
+  @apply opacity-100;
 }

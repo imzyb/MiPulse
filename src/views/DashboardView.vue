@@ -319,7 +319,7 @@ const handleResetTraffic = async () => {
                 <span class="text-[10px] font-bold text-primary-600">实时广播</span>
             </div>
           </div>
-          
+
           <div class="space-y-6">
             <div v-for="alert in alerts.slice(0, 5)" :key="alert.id" class="flex gap-4 relative">
               <div class="shrink-0 flex flex-col items-center">

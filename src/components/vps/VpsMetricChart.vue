@@ -266,8 +266,8 @@ const tooltipPos = computed(() => {
 
         <!-- Hover Line -->
         <line v-if="hoverIdx !== null" 
-            :x1="PAD_LEFT + (hoverIdx / (labels.length - 1 || 1)) * PLOT_W" :y1="PAD_TOP" 
-            :x2="PAD_LEFT + (hoverIdx / (labels.length - 1 || 1)) * PLOT_W" :y2="PAD_TOP + PLOT_H" 
+            :x1="PAD_LEFT + (hoverIdx / (props.labels.length - 1 || 1)) * PLOT_W" :y1="PAD_TOP" 
+            :x2="PAD_LEFT + (hoverIdx / (props.labels.length - 1 || 1)) * PLOT_W" :y2="PAD_TOP + PLOT_H" 
             :stroke="darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'" stroke-width="1" stroke-dasharray="4,4" vector-effect="non-scaling-stroke" 
         />
         
@@ -275,7 +275,7 @@ const tooltipPos = computed(() => {
         <circle 
             v-for="s in computedSeries" :key="s.label"
             v-show="hoverIdx !== null && visibleSeries.includes(s.label) && s.points[hoverIdx] !== null"
-            :cx="PAD_LEFT + (hoverIdx / (labels.length - 1 || 1)) * PLOT_W"
+            :cx="PAD_LEFT + (hoverIdx / (props.labels.length - 1 || 1)) * PLOT_W"
             :cy="PAD_TOP + PLOT_H - (s.points[hoverIdx] / maxValue) * PLOT_H"
             r="4" :fill="s.color" :stroke="darkMode ? 'white' : 'white'" stroke-width="2" vector-effect="non-scaling-stroke"
             :class="darkMode ? '' : 'shadow-lg'"

@@ -84,7 +84,6 @@ const loadNodes = async (silent = false) => {
             theme.value = {
                 ...defaultTheme,
                 ...rawTheme,
-                // Map the explicit admin fields to the internal theme keys if they exist
                 title: rawTheme.publicThemeTitle || rawTheme.title || defaultTheme.title,
                 subtitle: rawTheme.publicThemeSubtitle || rawTheme.subtitle || defaultTheme.subtitle,
                 logo: rawTheme.publicThemeLogo || rawTheme.logo || defaultTheme.logo,
@@ -92,11 +91,10 @@ const loadNodes = async (silent = false) => {
                 footerText: rawTheme.publicThemeFooterText || rawTheme.footerText || defaultTheme.footerText,
                 preset: rawTheme.publicThemePreset || rawTheme.preset || defaultTheme.preset
             };
-            
+
             layout.value = { ...{ headerEnabled: true, footerEnabled: true }, ...(result.layout || {}) };
             lastRefreshError.value = null;
-            
-            // Set document title
+
             const customTitle = theme.value.title !== 'MiPulse' ? theme.value.title : 'MiPulse';
             document.title = `${customTitle} - MiPulse Status`;
         } else {
@@ -184,6 +182,7 @@ const filteredNodes = computed(() => {
     if (activeTag.value !== 'All') {
         result = result.filter(node => (node.groupTag || 'Default') === activeTag.value);
     }
+
     return result;
 });
 
@@ -273,17 +272,25 @@ const getLatencyPoints = (nodeId) => {
     });
 };
 
-// 按协议类型分组获取延迟数据 (v1.6.4 支持全屏拉伸与冗余项剔除)
-const getLatencyByProtocol = (nodeId) => {
-    const nodeData = nodeHistoryMap.value[nodeId];
+const latencyPreviewMap = computed(() => {
+    const preview = {};
+    Object.keys(nodeHistoryMap.value).forEach((nodeId) => {
+        const firstPoint = getLatencyPoints(nodeId).find((point) => point !== null && point !== undefined);
+        preview[nodeId] = firstPoint ?? null;
+    });
+    return preview;
+});
+
+const buildLatencyByProtocol = (nodeData) => {
     const allSamples = nodeData?.latencySamples || [];
     const targetNames = nodeData?.targetNames || {};
+    const targetsById = nodeData?.targetsById || {};
     
-    // 1. 自动剪裁：找到第一个有【真实探测记录】（非平均值且延迟 > 0）的点
+    // 1. 自动剪裁：找到第一个有【有效探测记录】的点
     const firstValidIdx = allSamples.findIndex(s => 
-        (s.checks || []).some(c => !String(c.name || '').includes('Average') && c.latencyMs > 0)
+        (s.checks || []).some(c => c.latencyMs >= 0)
     );
-    // 强制截断前面的“静默期”，确保曲线从 0 轴开始生长
+    // 强制截断前面的“静默期”，确保曲线从有效上报点开始
     const samples = firstValidIdx === -1 ? [] : allSamples.slice(firstValidIdx);
     
     if (!samples.length) return {};
@@ -299,16 +306,18 @@ const getLatencyByProtocol = (nodeId) => {
     samples.forEach(s => {
         (s.checks || []).forEach(c => {
             const type = (c.type || 'ICMP').toUpperCase();
-            const rawName = c.name || c.target || 'Average';
+            const targetMeta = c.targetId ? targetsById[c.targetId] : null;
+            const rawName = c.name || c.target || targetMeta?.name || 'Average';
+            const stableKey = c.targetId || `${type}:${rawName}`;
             
             // 只有在当前有效的监控目标列表中的项才显示
             // 解决用户删除监控目标后，其历史数据依然显示在图表上的问题
-            if (!targetNames[rawName]) return;
+            if (!c.targetId && Object.keys(targetNames).length > 0 && !targetNames[rawName]) return;
             
-            const name = targetNames[rawName] || rawName;
-            const key = `${type}:${name}`;
+            const name = targetMeta?.name || targetNames[rawName] || rawName;
+            const key = `${type}:${stableKey}`;
             if (!targets.some(t => t.key === key)) {
-                targets.push({ key, type, name, rawName });
+                targets.push({ key, type, name, rawName, targetId: c.targetId || null });
             }
         });
     });
@@ -322,8 +331,10 @@ const getLatencyByProtocol = (nodeId) => {
         samples.forEach(s => {
             const check = (s.checks || []).find(c => {
                 const cType = (c.type || 'ICMP').toUpperCase();
+                if (cType !== t.type) return false;
+                if (t.targetId) return c.targetId === t.targetId;
                 const cName = c.name || c.target;
-                return cType === t.type && cName === t.rawName;
+                return cName === t.rawName;
             });
             series.points.push(check ? check.latencyMs : null);
         });
@@ -332,6 +343,14 @@ const getLatencyByProtocol = (nodeId) => {
 
     return protocols;
 };
+
+// 按协议类型分组获取延迟数据 (v1.6.4 支持全屏拉伸与冗余项剔除)
+const getLatencyByProtocol = (nodeId) => buildLatencyByProtocol(nodeHistoryMap.value[nodeId]);
+
+const selectedNodeLatencyProtocols = computed(() => {
+    if (!selectedNodeForModal.value?.id) return {};
+    return buildLatencyByProtocol(nodeHistoryMap.value[selectedNodeForModal.value.id]);
+});
 
 const protocolColors = { ICMP: '#06b6d4', TCP: '#f59e0b', HTTP: '#10b981', HTTPS: '#10b981' };
 
@@ -683,7 +702,7 @@ const dividerColor = computed(() => darkMode.value ? 'rgba(255,255,255,0.08)' : 
                                 <div class="flex flex-col min-w-0">
                                     <div class="flex items-center gap-2">
                                         <h4 class="text-sm font-black truncate tracking-tight">{{ node.name }}</h4>
-                                        <span class="text-[9px] px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/5 border opacity-60" :style="{ borderColor: dividerColor }">{{ node.region || '全球' }}</span>
+                            <span class="text-[9px] px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/5 border opacity-60" :style="{ borderColor: dividerColor }">{{ node.region || '全球' }}</span>
                                     </div>
                                     <div class="flex items-center gap-2 mt-0.5">
                                         <Clock :size="10" class="opacity-30" />
